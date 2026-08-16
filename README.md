@@ -20,19 +20,28 @@
 
 ## Запуск
 
-Нужен JDK 21+ (зависимости, включая сам JavaFX, Maven скачает сам).
+Нужен только JDK 21+ — Maven устанавливать не обязательно: в проекте есть
+Maven Wrapper (`mvnw`/`mvnw.cmd`), который сам скачает нужную версию Maven
+при первом запуске. Если Maven уже установлен, `mvnw` можно заменить на `mvn`.
 
-```bash
-# через плагин org.openjfx — не требует ручной настройки module-path
-mvn javafx:run
+```powershell
+# Windows (PowerShell/cmd)
+.\mvnw.cmd javafx:run
 
 # либо собрать один исполняемый jar со всем нужным внутри
-mvn package
+.\mvnw.cmd package
+java -jar target\javafx-of-tanks.jar
+```
+
+```bash
+# Linux/macOS
+./mvnw javafx:run
+./mvnw package
 java -jar target/javafx-of-tanks.jar
 ```
 
 ```bash
-mvn test
+./mvnw test
 ```
 
 ## Архитектура

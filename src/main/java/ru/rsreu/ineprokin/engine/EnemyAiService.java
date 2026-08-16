@@ -56,18 +56,19 @@ public final class EnemyAiService {
             AiDecision decision = this.strategy.decide(tank, world, this.random);
             memory.moving = decision.moving();
             memory.direction = decision.direction();
-            if (memory.moving) {
-                // ИИ не поворачивает плавно, а сразу смотрит в выбранную сторону света.
-                tank.faceDirection(memory.direction);
-            }
             memory.moveCooldown = this.randomBetween(
                     GameConfig.AI_MOVE_DECISION_MIN_SECONDS, GameConfig.AI_MOVE_DECISION_MAX_SECONDS);
         }
 
         if (memory.moving) {
+            // Довора́чивает к выбранной стороне света кадр за кадром — точно так же,
+            // как поворачивается танк игрока, — и едет вперёд вдоль текущего курса,
+            // поэтому на вираже видно, как корпус реально разворачивается, а не
+            // перескакивает мгновенно.
+            tank.rotateTowards(memory.direction.headingDegrees(), deltaTimeSeconds);
             double distance = tank.getSpeed() * deltaTimeSeconds;
-            double newX = tank.getX() + memory.direction.dx() * distance;
-            double newY = tank.getY() + memory.direction.dy() * distance;
+            double newX = tank.getX() + tank.forwardX() * distance;
+            double newY = tank.getY() + tank.forwardY() * distance;
             this.collisionService.tryMoveTank(tank, newX, newY, world.getMap(), world.getTanks());
         }
     }

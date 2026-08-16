@@ -78,6 +78,36 @@ class TankTest {
     }
 
     @Test
+    void rotateTowardsTurnsGraduallyRatherThanSnapping() {
+        Tank tank = new Tank(0, 0, 0, PlayerId.PLAYER_ONE);
+
+        tank.rotateTowards(Direction.RIGHT.headingDegrees(), 0.1); // короткий шаг, далеко от 90°
+
+        double expected = Tank.ROTATION_SPEED_DEG_PER_SEC * 0.1;
+        assertEquals(expected, tank.getHeadingDegrees(), EPSILON);
+        assertTrue(tank.getHeadingDegrees() < Direction.RIGHT.headingDegrees());
+    }
+
+    @Test
+    void rotateTowardsSnapsExactlyOnceCloseEnough() {
+        Tank tank = new Tank(0, 0, 85, PlayerId.PLAYER_ONE);
+
+        tank.rotateTowards(Direction.RIGHT.headingDegrees(), 1.0); // целой секунды с избытком хватает на 5°
+
+        assertEquals(Direction.RIGHT.headingDegrees(), tank.getHeadingDegrees(), EPSILON);
+    }
+
+    @Test
+    void rotateTowardsTakesShortestPathAcrossZero() {
+        Tank tank = new Tank(0, 0, 350, PlayerId.PLAYER_ONE);
+
+        // Кратчайший путь от 350° к 10° — через 0° (+20°), а не в обход через 180° (-340°).
+        tank.rotateTowards(10, 1.0);
+
+        assertEquals(10.0, tank.getHeadingDegrees(), EPSILON);
+    }
+
+    @Test
     void faceDirectionSnapsInstantlyToCardinalHeading() {
         Tank tank = new Tank(0, 0, 45, PlayerId.PLAYER_ONE);
 

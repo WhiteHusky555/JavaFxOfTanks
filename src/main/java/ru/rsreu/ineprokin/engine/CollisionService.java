@@ -53,20 +53,32 @@ public final class CollisionService {
 
     /**
      * Пытается передвинуть танк в новую точку. Стену объехать нельзя, а вот
-     * другой танк, оказавшийся на пути, толкается на ту же самую дельту
-     * движения — если только у него самого есть куда сдвинуться. Толкается
-     * только один танк за раз: если он упирается в стену или в третий танк,
-     * толчок не проходит и мы сами тоже остаёмся на месте.
+     * другой танк, оказавшийся на пути, можно толкнуть — если только у него
+     * самого есть куда сдвинуться. Толкается только один танк за раз: если он
+     * упирается в стену или в третий танк, толчок не проходит и мы сами тоже
+     * остаёмся на месте.
+     * <p>
+     * Толчок не бесплатный: и толкающий, и толкаемый продвигаются не на всю
+     * попытку хода, а только на {@link GameConfig#PUSH_TRANSFER_FACTOR} от
+     * неё — иначе танк противника или игрока сдвигался бы с места так же
+     * легко, как пустая клетка, за один кадр.
      */
     public boolean tryMoveTank(Tank tank, double newX, double newY, GameMap map, List<Tank> tanks) {
         if (this.collidesWithWall(map, newX, newY, Tank.SIZE)) {
             return false;
         }
         Tank blocker = this.findBlockingTank(tank, newX, newY, tanks);
-        if (blocker != null && !this.tryPush(blocker, newX - tank.getX(), newY - tank.getY(), map, tanks)) {
+        if (blocker == null) {
+            tank.setPosition(newX, newY);
+            return true;
+        }
+
+        double pushDx = (newX - tank.getX()) * GameConfig.PUSH_TRANSFER_FACTOR;
+        double pushDy = (newY - tank.getY()) * GameConfig.PUSH_TRANSFER_FACTOR;
+        if (!this.tryPush(blocker, pushDx, pushDy, map, tanks)) {
             return false;
         }
-        tank.setPosition(newX, newY);
+        tank.setPosition(tank.getX() + pushDx, tank.getY() + pushDy);
         return true;
     }
 

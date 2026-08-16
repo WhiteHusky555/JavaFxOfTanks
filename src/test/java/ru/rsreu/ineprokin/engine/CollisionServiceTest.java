@@ -72,10 +72,11 @@ class CollisionServiceTest {
         List<Tank> tanks = List.of(mover, blocker);
 
         boolean moved = collisionService.tryMoveTank(mover, 85, 40, map, tanks);
+        double expectedPush = (85 - 80) * GameConfig.PUSH_TRANSFER_FACTOR; // толчок гасится сопротивлением
 
         assertTrue(moved);
-        assertEquals(85, mover.getX());
-        assertEquals(80 + Tank.SIZE + 5, blocker.getX()); // толкнулся ровно на ту же дельту
+        assertEquals(80 + expectedPush, mover.getX(), 1e-9); // сам толкающий тоже продвинулся лишь на эту долю
+        assertEquals(80 + Tank.SIZE + expectedPush, blocker.getX(), 1e-9);
     }
 
     @Test

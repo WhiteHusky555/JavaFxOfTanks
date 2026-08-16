@@ -9,6 +9,7 @@ import javafx.scene.text.TextAlignment;
 import ru.rsreu.ineprokin.config.ThemeConfig;
 import ru.rsreu.ineprokin.model.entity.GameState;
 import ru.rsreu.ineprokin.model.entity.PlayerId;
+import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.map.GameMap;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
@@ -23,7 +24,7 @@ import ru.rsreu.ineprokin.viewmodel.dto.TankView;
 public final class GameRenderer {
 
     public static final double HUD_HEIGHT = 56.0;
-    private static final double TANK_SIZE = 36.0;
+    private static final double TANK_SIZE = Tank.SIZE;
     private static final double BULLET_RADIUS = 3.0;
     private static final double HEALTH_BAR_HEIGHT = 6.0;
     private static final double RELOAD_RING_RADIUS = 7.0;
@@ -94,11 +95,8 @@ public final class GameRenderer {
         if (!tank.isPlayerControlled() && tank.health() < tank.maxHealth()) {
             this.drawHealthBar(gc, x, y, tank.health(), tank.maxHealth());
         }
-        if (tank.isPlayerControlled()) {
-            double ringCenterX = x + GameRenderer.TANK_SIZE / 2.0;
-            double ringCenterY = y + GameRenderer.TANK_SIZE + 4.0 + GameRenderer.RELOAD_RING_RADIUS;
-            this.drawReloadRing(gc, ringCenterX, ringCenterY, tank.reloadProgress());
-        }
+        // Кольцо перезарядки игрока рисует drawReloadStatus в неподвижной
+        // полосе HUD, а не здесь, у самого танка на поле боя.
     }
 
     private Color hullColorFor(PlayerId playerId) {
@@ -178,13 +176,18 @@ public final class GameRenderer {
         this.drawReloadStatus(gc, snapshot.playerReloadProgress());
     }
 
+    /**
+     * Статус перезарядки — в неподвижной полосе HUD: в отличие от точки на
+     * поле боя, эта позиция не заслоняется пулями, стенами или другими танками.
+     */
     private void drawReloadStatus(GraphicsContext gc, double reloadProgress) {
-        boolean ready = reloadProgress >= 1.0;
-        String text = ready ? "Орудие: готово" : "Орудие: перезарядка " + (int) (reloadProgress * 100) + "%";
-
-        gc.setFill(ready ? this.theme.reloadReady() : this.theme.reloadCharging());
+        gc.setFill(this.theme.hudText());
         gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 14));
-        gc.fillText(text, 16, 50);
+        gc.fillText("Орудие:", 16, 50);
+
+        // Само кольцо цветом и заполнением показывает готовность — короткой
+        // подписи слева достаточно, чтобы не гадать, к чему оно относится.
+        this.drawReloadRing(gc, 78, 45, reloadProgress);
     }
 
     private void drawStateOverlay(GraphicsContext gc, GameSnapshot snapshot, double width, double height) {

@@ -29,7 +29,8 @@ import java.util.Optional;
 public final class Tank extends GameObject implements Damageable, Fireable {
 
     public static final int MAX_HEALTH = 100;
-    public static final double SIZE = 36.0;
+    /** Чуть меньше клетки карты ({@code GameMap.TILE_SIZE}), чтобы корпус не задевал стены углом при повороте. */
+    public static final double SIZE = 30.0;
 
     public static final double PLAYER_SPEED_PX_PER_SEC = 220.0;
     public static final double ENEMY_SPEED_PX_PER_SEC = 150.0;
@@ -122,9 +123,28 @@ public final class Tank extends GameObject implements Damageable, Fireable {
         this.headingDegrees = Tank.normalizeDegrees(this.headingDegrees + delta);
     }
 
-    /** Мгновенно разворачивает танк на один из четырёх кардинальных курсов — так решает двигаться простой ИИ. */
+    /** Мгновенно разворачивает танк на один из четырёх кардинальных курсов — например, при появлении на поле. */
     public void faceDirection(Direction direction) {
         this.headingDegrees = direction.headingDegrees();
+    }
+
+    /**
+     * Плавно доворачивает танк к целевому курсу кратчайшей стороной — не быстрее
+     * {@link #ROTATION_SPEED_DEG_PER_SEC}. Если до цели остаётся меньше одного
+     * шага, довершает поворот точно на неё, а не проскакивает мимо. Так рулит
+     * и игрок (кадр за кадром, пока зажата клавиша), и вражеский ИИ, выбравший
+     * себе новое направление.
+     */
+    public void rotateTowards(double targetHeadingDegrees, double deltaTimeSeconds) {
+        double target = Tank.normalizeDegrees(targetHeadingDegrees);
+        double delta = Tank.normalizeDegrees(target - this.headingDegrees + 180.0) - 180.0; // в диапазон (-180, 180]
+        double maxStep = ROTATION_SPEED_DEG_PER_SEC * deltaTimeSeconds;
+
+        if (Math.abs(delta) <= maxStep) {
+            this.headingDegrees = target;
+        } else {
+            this.headingDegrees = Tank.normalizeDegrees(this.headingDegrees + Math.copySign(maxStep, delta));
+        }
     }
 
     public double getHeadingDegrees() {

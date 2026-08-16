@@ -1,6 +1,7 @@
 package ru.rsreu.ineprokin.model.map;
 
 import ru.rsreu.ineprokin.model.PlayerId;
+import ru.rsreu.ineprokin.model.entity.PickupType;
 import ru.rsreu.ineprokin.model.geometry.TileCoord;
 
 import java.io.BufferedReader;
@@ -12,20 +13,27 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * Неизменяемая карта уровня: сетка тайлов и точки появления танков.
- * Стены на карте никогда не разрушаются в процессе игры, поэтому карта —
- * простой value-объект: она либо успешно построена и корректна, либо не
- * существует вовсе, без методов на изменение состояния "про запас".
+ * Неизменяемая карта уровня: сетка тайлов, точки появления танков, бонусов
+ * и бочек. Стены на карте никогда не разрушаются в процессе игры, поэтому
+ * карта — простой value-объект: она либо успешно построена и корректна,
+ * либо не существует вовсе, без методов на изменение состояния "про запас".
  * <p>
  * Точек старта игрока может быть несколько — {@code playerStarts} хранит их
- * по {@link PlayerId}, а не единственную пару координат. Сейчас карта задаёт
- * только {@link PlayerId#PLAYER_ONE} (маркер {@code P}); чтобы добавить
- * второго игрока, достаточно поставить на карте маркер {@code 2} — код
- * разбора и весь остальной движок уже готовы прочитать вторую точку старта.
+ * по {@link PlayerId}, а не единственную пару координат: карта задаёт
+ * {@link PlayerId#PLAYER_ONE} обязательно (маркер {@code P}) и, опционально,
+ * {@link PlayerId#PLAYER_TWO} (маркер {@code 2}) — второй игрок подключается
+ * к партии позже, но точка для его появления уже должна быть на карте.
  */
-public record GameMap(List<List<TileType>> rows, Map<PlayerId, TileCoord> playerStarts, List<TileCoord> enemyStarts) {
+public record GameMap(
+        List<List<TileType>> rows,
+        Map<PlayerId, TileCoord> playerStarts,
+        List<TileCoord> enemyStarts,
+        Map<PickupType, List<TileCoord>> pickupStarts,
+        List<TileCoord> barrelStarts
+) {
 
     public static final double TILE_SIZE = 40.0;
 
@@ -39,13 +47,17 @@ public record GameMap(List<List<TileType>> rows, Map<PlayerId, TileCoord> player
         rows = rows.stream().map(List::copyOf).toList();
         playerStarts = Map.copyOf(playerStarts);
         enemyStarts = List.copyOf(enemyStarts);
+        pickupStarts = pickupStarts.entrySet().stream()
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, entry -> List.copyOf(entry.getValue())));
+        barrelStarts = List.copyOf(barrelStarts);
     }
 
     /**
      * Разбирает карту из текстового ресурса: {@code #} — стена, {@code P} — старт
-     * игрока 1 (первый найденный), {@code 2} — старт игрока 2 (первый найденный,
-     * пока не используется ни одной картой), {@code E} — старт врага, всё
-     * остальное — пол.
+     * игрока 1 (первый найденный), {@code 2} — старт игрока 2 (первый найденный),
+     * {@code E} — старт врага, {@code M} — аптечка, {@code L} — дополнительная
+     * жизнь, {@code R} — ускоренная перезарядка, {@code B} — взрывная бочка,
+     * всё остальное — пол.
      *
      * @throws MapLoadException если поток нельзя прочитать, карта пуста, строки
      *                          не одинаковой длины или на карте нет позиции игрока 1
@@ -54,6 +66,8 @@ public record GameMap(List<List<TileType>> rows, Map<PlayerId, TileCoord> player
         List<List<TileType>> rows = new ArrayList<>();
         List<TileCoord> enemyStarts = new ArrayList<>();
         Map<PlayerId, TileCoord> playerStarts = new EnumMap<>(PlayerId.class);
+        Map<PickupType, List<TileCoord>> pickupStarts = new EnumMap<>(PickupType.class);
+        List<TileCoord> barrelStarts = new ArrayList<>();
         int width = -1;
         int rowIndex = 0;
 
@@ -73,19 +87,36 @@ public record GameMap(List<List<TileType>> rows, Map<PlayerId, TileCoord> player
 
                 List<TileType> row = new ArrayList<>(width);
                 for (int col = 0; col < line.length(); col++) {
+                    TileCoord coord = new TileCoord(col, rowIndex);
                     switch (line.charAt(col)) {
                         case '#' -> row.add(TileType.WALL);
                         case 'P' -> {
                             row.add(TileType.EMPTY);
-                            playerStarts.putIfAbsent(PlayerId.PLAYER_ONE, new TileCoord(col, rowIndex));
+                            playerStarts.putIfAbsent(PlayerId.PLAYER_ONE, coord);
                         }
                         case '2' -> {
                             row.add(TileType.EMPTY);
-                            playerStarts.putIfAbsent(PlayerId.PLAYER_TWO, new TileCoord(col, rowIndex));
+                            playerStarts.putIfAbsent(PlayerId.PLAYER_TWO, coord);
                         }
                         case 'E' -> {
                             row.add(TileType.EMPTY);
-                            enemyStarts.add(new TileCoord(col, rowIndex));
+                            enemyStarts.add(coord);
+                        }
+                        case 'M' -> {
+                            row.add(TileType.EMPTY);
+                            pickupStarts.computeIfAbsent(PickupType.MEDKIT, ignored -> new ArrayList<>()).add(coord);
+                        }
+                        case 'L' -> {
+                            row.add(TileType.EMPTY);
+                            pickupStarts.computeIfAbsent(PickupType.EXTRA_LIFE, ignored -> new ArrayList<>()).add(coord);
+                        }
+                        case 'R' -> {
+                            row.add(TileType.EMPTY);
+                            pickupStarts.computeIfAbsent(PickupType.RAPID_RELOAD, ignored -> new ArrayList<>()).add(coord);
+                        }
+                        case 'B' -> {
+                            row.add(TileType.EMPTY);
+                            barrelStarts.add(coord);
                         }
                         default -> row.add(TileType.EMPTY);
                     }
@@ -103,7 +134,7 @@ public record GameMap(List<List<TileType>> rows, Map<PlayerId, TileCoord> player
         if (!playerStarts.containsKey(PlayerId.PLAYER_ONE)) {
             throw new MapLoadException("На карте не найдена стартовая позиция игрока 1 ('P')");
         }
-        return new GameMap(rows, playerStarts, enemyStarts);
+        return new GameMap(rows, playerStarts, enemyStarts, pickupStarts, barrelStarts);
     }
 
     public int width() {
@@ -136,5 +167,10 @@ public record GameMap(List<List<TileType>> rows, Map<PlayerId, TileCoord> player
 
     public double heightInPixels() {
         return this.height() * GameMap.TILE_SIZE;
+    }
+
+    /** Точки появления бонусов конкретного типа — пустой список, если на карте таких нет. */
+    public List<TileCoord> pickupStarts(PickupType type) {
+        return this.pickupStarts.getOrDefault(type, List.of());
     }
 }

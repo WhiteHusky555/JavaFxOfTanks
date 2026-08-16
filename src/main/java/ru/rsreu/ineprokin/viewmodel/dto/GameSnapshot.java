@@ -25,6 +25,8 @@ public record GameSnapshot(
         GameMap map,
         List<TankView> tanks,
         List<BulletView> bullets,
+        List<PickupView> pickups,
+        List<BarrelView> barrels,
         PlayerHudInfo playerOne,
         PlayerHudInfo playerTwo,
         GameState state,
@@ -36,5 +38,7 @@ public record GameSnapshot(
     public GameSnapshot {
         tanks = List.copyOf(tanks);
         bullets = List.copyOf(bullets);
+        pickups = List.copyOf(pickups);
+        barrels = List.copyOf(barrels);
     }
 }

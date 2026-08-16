@@ -6,7 +6,10 @@ import ru.rsreu.ineprokin.engine.ai.AiStrategy;
 import ru.rsreu.ineprokin.engine.spawn.DefaultSpawnLocationFinder;
 import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Bullet;
+import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
 import ru.rsreu.ineprokin.model.entity.GameState;
+import ru.rsreu.ineprokin.model.entity.Pickup;
+import ru.rsreu.ineprokin.model.entity.PickupType;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.map.GameMap;
@@ -49,6 +52,19 @@ class GameWorldTest {
                 "#......#",
                 "#2.....#",
                 "########");
+        InputStream input = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+        return GameMap.load(input);
+    }
+
+    /** Несёт по одному экземпляру каждого бонуса и одну бочку — координаты не важны, тесты находят их через геттеры. */
+    private static GameMap mapWithPickupsAndBarrel() {
+        String content = String.join("\n",
+                "##########",
+                "#P.......#",
+                "#..M..L..#",
+                "#..R..B..#",
+                "#........#",
+                "##########");
         InputStream input = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
         return GameMap.load(input);
     }
@@ -218,5 +234,59 @@ class GameWorldTest {
         world.activatePlayer(PlayerId.PLAYER_TWO);
 
         assertFalse(world.isPlayerActive(PlayerId.PLAYER_TWO));
+    }
+
+    @Test
+    void collectingMedkitHealsPlayerButNeverAboveMax() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithPickupsAndBarrel());
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
+        player.takeDamage(70);
+        Pickup medkit = world.getPickups().stream()
+                .filter(pickup -> pickup.getType() == PickupType.MEDKIT).findFirst().orElseThrow();
+        player.setPosition(medkit.getX(), medkit.getY());
+
+        world.tick(1.0 / 60.0);
+
+        assertEquals(Math.min(Tank.MAX_HEALTH, 30 + GameConfig.MEDKIT_HEAL_AMOUNT), player.getHealth());
+        assertTrue(world.getPickups().stream().noneMatch(pickup -> pickup.getType() == PickupType.MEDKIT));
+    }
+
+    @Test
+    void collectingExtraLifeAllowsPlayerToRespawnInsteadOfEndingTheRound() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithPickupsAndBarrel());
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
+        Pickup extraLife = world.getPickups().stream()
+                .filter(pickup -> pickup.getType() == PickupType.EXTRA_LIFE).findFirst().orElseThrow();
+        player.setPosition(extraLife.getX(), extraLife.getY());
+        world.tick(1.0 / 60.0);
+        assertEquals(1, world.getExtraLives(PlayerId.PLAYER_ONE));
+
+        player.takeDamage(Tank.MAX_HEALTH);
+        world.tick(1.0 / 60.0);
+
+        assertEquals(GameState.PLAYING, world.getState()); // запасная жизнь потрачена вместо конца раунда
+        assertEquals(0, world.getExtraLives(PlayerId.PLAYER_ONE));
+        Tank revivedPlayer = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
+        assertEquals(Tank.MAX_HEALTH, revivedPlayer.getHealth());
+        assertTrue(revivedPlayer.isInvulnerable());
+    }
+
+    @Test
+    void playerCanDetonateBarrelWithGunfireAndTakeSplashDamage() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithPickupsAndBarrel());
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
+        ExplosiveBarrel barrel = world.getBarrels().get(0);
+
+        // Игрок вплотную к бочке, целится в неё и стреляет.
+        player.setPosition(barrel.getX(), barrel.getY() - Tank.SIZE);
+        player.faceDirection(Direction.DOWN);
+        world.firePlayer(PlayerId.PLAYER_ONE);
+
+        for (int frame = 0; frame < 30; frame++) {
+            world.tick(1.0 / 60.0);
+        }
+
+        assertTrue(world.getBarrels().isEmpty());
+        assertTrue(player.getHealth() < Tank.MAX_HEALTH); // задело взрывом
     }
 }

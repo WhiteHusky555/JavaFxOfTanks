@@ -7,7 +7,10 @@ import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.capability.BulletSpawnRequest;
 import ru.rsreu.ineprokin.model.capability.Destructible;
 import ru.rsreu.ineprokin.model.entity.Bullet;
+import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
 import ru.rsreu.ineprokin.model.entity.GameState;
+import ru.rsreu.ineprokin.model.entity.Pickup;
+import ru.rsreu.ineprokin.model.entity.PickupType;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.geometry.Position;
@@ -20,11 +23,12 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
- * Корень доменной модели одной партии: карта, танки, пули, счёт и фаза игры.
- * Сам не занимается ни физикой столкновений, ни ИИ, ни поиском точки
- * возрождения — эти обязанности переданы {@link CollisionService},
+ * Корень доменной модели одной партии: карта, танки, пули, бонусы, бочки,
+ * счёт и фаза игры. Сам не занимается ни физикой столкновений, ни ИИ, ни
+ * поиском точки возрождения — эти обязанности переданы {@link CollisionService},
  * {@link EnemyAiService} и {@link SpawnLocationFinder} соответственно.
  * {@code GameWorld} — только их оркестратор.
  * <p>
@@ -46,8 +50,11 @@ public final class GameWorld implements GameWorldView {
 
     private final List<Tank> tanks = new ArrayList<>();
     private final List<Bullet> bullets = new ArrayList<>();
+    private final List<Pickup> pickups = new ArrayList<>();
+    private final List<ExplosiveBarrel> barrels = new ArrayList<>();
     private final Map<PlayerId, Tank> playerTanks = new EnumMap<>(PlayerId.class);
     private final Map<PlayerId, Integer> scores = new EnumMap<>(PlayerId.class);
+    private final Map<PlayerId, Integer> extraLives = new EnumMap<>(PlayerId.class);
 
     private GameState state = GameState.PLAYING;
 
@@ -73,8 +80,11 @@ public final class GameWorld implements GameWorldView {
     public void reset() {
         this.tanks.clear();
         this.bullets.clear();
+        this.pickups.clear();
+        this.barrels.clear();
         this.playerTanks.clear();
         this.scores.clear();
+        this.extraLives.clear();
         for (PlayerId playerId : PlayerId.values()) {
             this.scores.put(playerId, 0);
         }
@@ -85,6 +95,16 @@ public final class GameWorld implements GameWorldView {
         for (TileCoord enemyStart : this.map.enemyStarts()) {
             Position position = enemyStart.toPixelCenter(GameMap.TILE_SIZE, Tank.SIZE);
             this.tanks.add(Tank.enemy(position.x(), position.y(), this.randomDirection().headingDegrees()));
+        }
+        for (PickupType type : PickupType.values()) {
+            for (TileCoord coord : this.map.pickupStarts(type)) {
+                Position position = coord.toPixelCenter(GameMap.TILE_SIZE, Pickup.SIZE);
+                this.pickups.add(new Pickup(position.x(), position.y(), type));
+            }
+        }
+        for (TileCoord coord : this.map.barrelStarts()) {
+            Position position = coord.toPixelCenter(GameMap.TILE_SIZE, ExplosiveBarrel.SIZE);
+            this.barrels.add(new ExplosiveBarrel(position.x(), position.y()));
         }
     }
 
@@ -161,7 +181,7 @@ public final class GameWorld implements GameWorldView {
         }
     }
 
-    /** Продвигает партию на {@code deltaTimeSeconds}: перезарядка, полёт пуль, ИИ, столкновения, уборка трупов. */
+    /** Продвигает партию на {@code deltaTimeSeconds}: перезарядка, полёт пуль, ИИ, столкновения, бонусы, уборка трупов. */
     public void tick(double deltaTimeSeconds) {
         if (this.state != GameState.PLAYING) {
             return;
@@ -179,18 +199,65 @@ public final class GameWorld implements GameWorldView {
         }
 
         for (PlayerId scorer : this.collisionService.resolveBulletHits(this.bullets, this.tanks, this.map)) {
-            this.scores.merge(scorer, GameConfig.SCORE_PER_KILL, Integer::sum);
-            this.spawnReplacementEnemy();
+            this.awardKill(scorer);
+        }
+        for (PlayerId scorer : this.collisionService.resolveBulletBarrelHits(this.bullets, this.barrels, this.tanks)) {
+            this.awardKill(scorer);
+        }
+        for (CollisionService.PickupCollection collection : this.collisionService.resolvePickupCollisions(this.pickups, this.tanks)) {
+            this.applyPickupEffect(collection.tank(), collection.type());
         }
 
         this.collisionService.separateOverlappingTanks(this.tanks, this.map);
 
+        this.reviveDestroyedPlayers();
+
         this.bullets.removeIf(Destructible::isDestroyed);
         this.tanks.removeIf(Destructible::isDestroyed);
+        this.pickups.removeIf(Destructible::isDestroyed);
+        this.barrels.removeIf(Destructible::isDestroyed);
 
         if (this.allPlayersDestroyed()) {
             this.state = GameState.GAME_OVER;
         }
+    }
+
+    private void awardKill(PlayerId scorer) {
+        this.scores.merge(scorer, GameConfig.SCORE_PER_KILL, Integer::sum);
+        this.spawnReplacementEnemy();
+    }
+
+    private void applyPickupEffect(Tank tank, PickupType type) {
+        switch (type) {
+            case MEDKIT -> tank.heal(GameConfig.MEDKIT_HEAL_AMOUNT);
+            case RAPID_RELOAD -> tank.applyRapidReload(GameConfig.RAPID_RELOAD_DURATION_SECONDS, GameConfig.RAPID_RELOAD_MULTIPLIER);
+            case EXTRA_LIFE -> tank.getPlayerId().ifPresent(id -> this.extraLives.merge(id, 1, Integer::sum));
+        }
+    }
+
+    /**
+     * Игрок с погибшим танком и запасной жизнью в кармане возрождается на стартовой
+     * позиции — а не выбывает. Возрождённый танк получает кратковременную
+     * неуязвимость, чтобы не погибнуть от того же выстрела, что настиг его на
+     * старом месте.
+     */
+    private void reviveDestroyedPlayers() {
+        for (PlayerId playerId : Set.copyOf(this.playerTanks.keySet())) {
+            Tank tank = this.playerTanks.get(playerId);
+            if (tank.isDestroyed() && this.consumeExtraLife(playerId)) {
+                this.spawnPlayerTank(playerId);
+                this.playerTanks.get(playerId).grantInvulnerability(GameConfig.RESPAWN_INVULNERABILITY_SECONDS);
+            }
+        }
+    }
+
+    private boolean consumeExtraLife(PlayerId playerId) {
+        int lives = this.extraLives.getOrDefault(playerId, 0);
+        if (lives <= 0) {
+            return false;
+        }
+        this.extraLives.put(playerId, lives - 1);
+        return true;
     }
 
     private boolean allPlayersDestroyed() {
@@ -226,6 +293,14 @@ public final class GameWorld implements GameWorldView {
         return Collections.unmodifiableList(this.bullets);
     }
 
+    public List<Pickup> getPickups() {
+        return Collections.unmodifiableList(this.pickups);
+    }
+
+    public List<ExplosiveBarrel> getBarrels() {
+        return Collections.unmodifiableList(this.barrels);
+    }
+
     @Override
     public GameState getState() {
         return this.state;
@@ -239,6 +314,10 @@ public final class GameWorld implements GameWorldView {
 
     public int getScore(PlayerId playerId) {
         return this.scores.getOrDefault(playerId, 0);
+    }
+
+    public int getExtraLives(PlayerId playerId) {
+        return this.extraLives.getOrDefault(playerId, 0);
     }
 
     public int getPlayerHealth(PlayerId playerId) {

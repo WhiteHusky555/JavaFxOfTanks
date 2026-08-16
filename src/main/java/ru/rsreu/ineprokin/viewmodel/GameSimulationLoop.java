@@ -6,8 +6,10 @@ import ru.rsreu.ineprokin.engine.GameConfig;
 import ru.rsreu.ineprokin.engine.GameWorld;
 import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.GameState;
+import ru.rsreu.ineprokin.viewmodel.dto.BarrelView;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
+import ru.rsreu.ineprokin.viewmodel.dto.PickupView;
 import ru.rsreu.ineprokin.viewmodel.dto.PlayerHudInfo;
 import ru.rsreu.ineprokin.viewmodel.dto.TankView;
 
@@ -191,17 +193,23 @@ public final class GameSimulationLoop implements Runnable {
 
         List<TankView> tankViews = this.world.getTanks().stream()
                 .map(tank -> new TankView(
-                        tank.getX(), tank.getY(), tank.getHeadingDegrees(),
-                        tank.getPlayerId().orElse(null), tank.getHealth(), tank.getMaxHealth(), tank.getReloadProgress()))
+                        tank.getX(), tank.getY(), tank.getHeadingDegrees(), tank.getPlayerId().orElse(null),
+                        tank.getHealth(), tank.getMaxHealth(), tank.getReloadProgress(), tank.isInvulnerable()))
                 .toList();
         List<BulletView> bulletViews = this.world.getBullets().stream()
                 .map(bullet -> new BulletView(bullet.getX(), bullet.getY(), bullet.isFromPlayer()))
+                .toList();
+        List<PickupView> pickupViews = this.world.getPickups().stream()
+                .map(pickup -> new PickupView(pickup.getX(), pickup.getY(), pickup.getType()))
+                .toList();
+        List<BarrelView> barrelViews = this.world.getBarrels().stream()
+                .map(barrel -> new BarrelView(barrel.getX(), barrel.getY()))
                 .toList();
 
         int secondsLeft = (int) Math.max(1, Math.ceil(GameConfig.RESULTS_SCREEN_SECONDS - this.resultsElapsedSeconds));
 
         return new GameSnapshot(
-                this.world.getMap(), tankViews, bulletViews,
+                this.world.getMap(), tankViews, bulletViews, pickupViews, barrelViews,
                 this.playerHudInfo(PlayerId.PLAYER_ONE), this.playerHudInfo(PlayerId.PLAYER_TWO),
                 this.world.getState(), this.smoothedFps,
                 this.world.getState() == GameState.GAME_OVER, secondsLeft);
@@ -215,7 +223,7 @@ public final class GameSimulationLoop implements Runnable {
                 true, this.world.isPlayerActive(playerId),
                 this.world.getScore(playerId),
                 this.world.getPlayerHealth(playerId), this.world.getPlayerMaxHealth(playerId),
-                this.world.getPlayerReloadProgress(playerId));
+                this.world.getPlayerReloadProgress(playerId), this.world.getExtraLives(playerId));
     }
 
     public GameSnapshot latestSnapshot() {

@@ -42,6 +42,16 @@ public final class GameConfig {
      */
     public static final double PUSH_TRANSFER_FACTOR = 0.25;
 
+    /** Сколько здоровья восстанавливает аптечка (не выше максимума танка). */
+    public static final int MEDKIT_HEAL_AMOUNT = 50;
+
+    /** Насколько и на сколько секунд ускоряется перезарядка после бонуса "ускоренная перезарядка". */
+    public static final double RAPID_RELOAD_DURATION_SECONDS = 6.0;
+    public static final double RAPID_RELOAD_MULTIPLIER = 2.5;
+
+    /** Сколько секунд танк неуязвим сразу после появления или возрождения — чтобы его не убили тем же кадром. */
+    public static final double RESPAWN_INVULNERABILITY_SECONDS = 2.0;
+
     private GameConfig() {
     }
 }

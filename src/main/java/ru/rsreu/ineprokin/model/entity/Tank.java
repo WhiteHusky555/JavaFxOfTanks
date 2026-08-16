@@ -51,6 +51,9 @@ public final class Tank extends GameObject implements Damageable, Fireable {
     private double headingDegrees;
     private int health;
     private double timeSinceLastShot;
+    private double rapidReloadRemainingSeconds;
+    private double rapidReloadMultiplier = 1.0;
+    private double invulnerableRemainingSeconds;
 
     /**
      * @param headingDegrees курс в градусах по часовой стрелке от направления "вверх"
@@ -74,8 +77,16 @@ public final class Tank extends GameObject implements Damageable, Fireable {
 
     @Override
     public void update(double deltaTimeSeconds) {
+        double reloadDeltaSeconds = deltaTimeSeconds;
+        if (this.rapidReloadRemainingSeconds > 0) {
+            this.rapidReloadRemainingSeconds -= deltaTimeSeconds;
+            reloadDeltaSeconds *= this.rapidReloadMultiplier;
+        }
         if (this.timeSinceLastShot < this.reloadSeconds) {
-            this.timeSinceLastShot += deltaTimeSeconds;
+            this.timeSinceLastShot += reloadDeltaSeconds;
+        }
+        if (this.invulnerableRemainingSeconds > 0) {
+            this.invulnerableRemainingSeconds -= deltaTimeSeconds;
         }
     }
 
@@ -110,7 +121,29 @@ public final class Tank extends GameObject implements Damageable, Fireable {
 
     @Override
     public void takeDamage(int amount) {
+        if (this.isInvulnerable()) {
+            return;
+        }
         this.health = Math.max(0, this.health - amount);
+    }
+
+    public void heal(int amount) {
+        this.health = Math.min(MAX_HEALTH, this.health + amount);
+    }
+
+    /** Ускоряет накопление перезарядки в {@code speedMultiplier} раз на ближайшие {@code durationSeconds}. */
+    public void applyRapidReload(double durationSeconds, double speedMultiplier) {
+        this.rapidReloadRemainingSeconds = durationSeconds;
+        this.rapidReloadMultiplier = speedMultiplier;
+    }
+
+    /** Делает танк неуязвимым на {@code durationSeconds} — например, сразу после возрождения. */
+    public void grantInvulnerability(double durationSeconds) {
+        this.invulnerableRemainingSeconds = durationSeconds;
+    }
+
+    public boolean isInvulnerable() {
+        return this.invulnerableRemainingSeconds > 0;
     }
 
     /**

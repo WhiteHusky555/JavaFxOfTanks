@@ -43,6 +43,24 @@
 неподвижной полосе сверху, а не рядом с танком на поле боя, где его было
 бы легко потерять из виду в горячке боя.
 
+## Бонусы и опасности
+
+На карте, помимо стен и точек старта, размечены подбираемые бонусы и
+взрывоопасные бочки — подбирать бонусы может только танк игрока, ИИ их
+игнорирует:
+
+| Значок на `map.txt` | Что это         | Эффект                                                          |
+|----------------------|------------------|------------------------------------------------------------------|
+| `M`                  | Медпакет        | Восстанавливает `GameConfig.MEDKIT_HEAL_AMOUNT` очков здоровья, не выше максимума |
+| `L`                  | Доп. жизнь      | Не расходуется сразу: копится в счётчике игрока и спасает от гибели в раунде — при уничтожении танк вместо выбывания тут же возрождается на стартовой позиции |
+| `R`                  | Ускоренная перезарядка | На `GameConfig.RAPID_RELOAD_DURATION_SECONDS` секунд перезарядка идёт в `GameConfig.RAPID_RELOAD_MULTIPLIER` раз быстрее |
+| `B`                  | Взрывная бочка  | Не действует сама по себе — но любое попадание пули (хоть игрока, хоть ИИ) детонирует её и наносит `ExplosiveBarrel.EXPLOSION_DAMAGE` урона всем танкам в радиусе `ExplosiveBarrel.EXPLOSION_RADIUS`, без разбора команд, включая того, кто стрелял |
+
+Возрождение по доп. жизни даёт танку кратковременную неуязвимость
+(`GameConfig.RESPAWN_INVULNERABILITY_SECONDS`) — на это время он заметно
+мигает и игнорирует урон, чтобы не погибнуть второй раз мгновенно на той же
+точке, ещё не успев среагировать на обстановку.
+
 ## Запуск
 
 Нужен только JDK 21+ — Maven устанавливать не обязательно: в проекте есть
@@ -89,7 +107,7 @@ config    — парсинг текстовых ресурсов (controls/theme
 model/                 PlayerId, AboutInfo — общие для capability и entity, поэтому ни в одном из них
 model.capability/       Updatable, Destructible, Damageable, DamageSource, Fireable, BulletSpawnRequest
 model.geometry/         Direction, Position, TileCoord
-model.entity/           GameObject, Tank, Bullet, GameState
+model.entity/           GameObject, Tank, Bullet, Pickup, PickupType, ExplosiveBarrel, GameState
 model.map/               GameMap, TileType, MapLoadException
 
 engine/                CollisionService, EnemyAiService, GameWorld, GameWorldView, GameConfig
@@ -97,7 +115,7 @@ engine.ai/              AiStrategy, AiDecision, RandomAiStrategy
 engine.spawn/           SpawnLocationFinder, DefaultSpawnLocationFinder
 
 viewmodel/              GameViewModel, GameSimulationLoop, MenuViewModel, AboutViewModel
-viewmodel.dto/           GameSnapshot, TankView, BulletView, PlayerHudInfo
+viewmodel.dto/           GameSnapshot, TankView, BulletView, PickupView, BarrelView, PlayerHudInfo
 
 view/                   GameView, GameRenderer, MenuView, AboutView
 navigation/              Router, SceneRouter
@@ -201,7 +219,7 @@ GameSimulationLoop implements Runnable   — тикает партию на ~60 
 
 | Файл                  | Что описывает                                  |
 |------------------------|------------------------------------------------|
-| `map.txt`             | Карта: `#` стена, `P`/`2` старт игроков, `E` враг |
+| `map.txt`             | Карта: `#` стена, `P`/`2` старт игроков, `E` враг, `M`/`L`/`R` бонусы, `B` бочка |
 | `controls.properties` | Раскладка клавиш (имена `javafx.scene.input.KeyCode`) |
 | `theme.properties`    | Цветовая палитра экрана (`#RRGGBB[AA]`)         |
 | `about.properties`    | Текст экрана «О программе»                      |
@@ -213,7 +231,11 @@ GameSimulationLoop implements Runnable   — тикает партию на ~60 
 приложения: разбор карты и её ошибки, перезарядка и урон танка, плавный
 поворот, столкновения со стеной/танком/пулей (включая толкание),
 дружественный огонь, пауза, уничтожение врага и начисление очков верному
-стрелку, подключение и гибель второго игрока — `GameWorldTest` собирает
+стрелку, подключение и гибель второго игрока, разбор бонусов и бочек с
+карты, взрыв бочки с уроном по всем в радиусе и начислением убийства
+стрелку, подбор бонусов только танком игрока, лечение медпакетом,
+ускорение перезарядки бонусом и его истечение, неуязвимость и её конец,
+возрождение по доп. жизни вместо конца раунда — `GameWorldTest` собирает
 `GameWorld` с ИИ-стратегией-заглушкой (лямбдой), не трогая настоящую
 рандомизированную тактику.
 

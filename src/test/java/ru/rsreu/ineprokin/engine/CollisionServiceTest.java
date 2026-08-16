@@ -3,6 +3,9 @@ package ru.rsreu.ineprokin.engine;
 import org.junit.jupiter.api.Test;
 import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Bullet;
+import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
+import ru.rsreu.ineprokin.model.entity.Pickup;
+import ru.rsreu.ineprokin.model.entity.PickupType;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.map.GameMap;
@@ -147,5 +150,80 @@ class CollisionServiceTest {
 
         assertEquals(Tank.MAX_HEALTH, playerOneTank.getHealth());
         assertFalse(playerTwoBullet.isDestroyed());
+    }
+
+    @Test
+    void bulletDestroysBarrelAndBlastHitsEveryoneInRadiusIncludingTheShooter() {
+        CollisionService collisionService = new CollisionService();
+        ExplosiveBarrel barrel = new ExplosiveBarrel(80, 80);
+        Tank shooter = new Tank(80, 80, Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE); // сам в радиусе взрыва
+        Tank bystander = Tank.enemy(80 + 20, 80, Direction.UP.headingDegrees());
+        Bullet bullet = new Bullet(80 + ExplosiveBarrel.SIZE / 2.0, 80 + ExplosiveBarrel.SIZE / 2.0,
+                Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
+
+        List<PlayerId> scorers = collisionService.resolveBulletBarrelHits(
+                List.of(bullet), List.of(barrel), List.of(shooter, bystander));
+
+        assertTrue(bullet.isDestroyed());
+        assertTrue(barrel.isDestroyed());
+        assertEquals(Tank.MAX_HEALTH - ExplosiveBarrel.EXPLOSION_DAMAGE, shooter.getHealth()); // взрыв не разбирает своих
+        assertEquals(Tank.MAX_HEALTH - ExplosiveBarrel.EXPLOSION_DAMAGE, bystander.getHealth());
+        assertTrue(scorers.isEmpty()); // одного взрыва недостаточно, чтобы убить
+    }
+
+    @Test
+    void barrelExplosionCreditsTheShooterWhenItKillsAnEnemy() {
+        CollisionService collisionService = new CollisionService();
+        ExplosiveBarrel barrel = new ExplosiveBarrel(80, 80);
+        Tank enemy = Tank.enemy(80, 80, Direction.UP.headingDegrees());
+        enemy.takeDamage(Tank.MAX_HEALTH - ExplosiveBarrel.EXPLOSION_DAMAGE + 1); // взрыв как раз добьёт
+        Bullet bullet = new Bullet(80 + ExplosiveBarrel.SIZE / 2.0, 80 + ExplosiveBarrel.SIZE / 2.0,
+                Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
+
+        List<PlayerId> scorers = collisionService.resolveBulletBarrelHits(List.of(bullet), List.of(barrel), List.of(enemy));
+
+        assertTrue(enemy.isDestroyed());
+        assertEquals(List.of(PlayerId.PLAYER_ONE), scorers);
+    }
+
+    @Test
+    void tanksOutsideBlastRadiusAreUnaffectedByExplosion() {
+        CollisionService collisionService = new CollisionService();
+        ExplosiveBarrel barrel = new ExplosiveBarrel(80, 80);
+        Tank farAway = Tank.enemy(80 + ExplosiveBarrel.EXPLOSION_RADIUS * 3, 80, Direction.UP.headingDegrees());
+        Bullet bullet = new Bullet(80 + ExplosiveBarrel.SIZE / 2.0, 80 + ExplosiveBarrel.SIZE / 2.0,
+                Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
+
+        collisionService.resolveBulletBarrelHits(List.of(bullet), List.of(barrel), List.of(farAway));
+
+        assertEquals(Tank.MAX_HEALTH, farAway.getHealth());
+    }
+
+    @Test
+    void playerTankCollectsPickupOnOverlap() {
+        CollisionService collisionService = new CollisionService();
+        Pickup medkit = new Pickup(80, 80, PickupType.MEDKIT);
+        Tank player = new Tank(80, 80, Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
+
+        List<CollisionService.PickupCollection> collections =
+                collisionService.resolvePickupCollisions(List.of(medkit), List.of(player));
+
+        assertTrue(medkit.isDestroyed()); // "уничтожен" здесь означает "подобран"
+        assertEquals(1, collections.size());
+        assertEquals(PickupType.MEDKIT, collections.get(0).type());
+        assertEquals(player, collections.get(0).tank());
+    }
+
+    @Test
+    void enemyTanksCannotCollectPickups() {
+        CollisionService collisionService = new CollisionService();
+        Pickup medkit = new Pickup(80, 80, PickupType.MEDKIT);
+        Tank enemy = Tank.enemy(80, 80, Direction.UP.headingDegrees());
+
+        List<CollisionService.PickupCollection> collections =
+                collisionService.resolvePickupCollisions(List.of(medkit), List.of(enemy));
+
+        assertFalse(medkit.isDestroyed());
+        assertTrue(collections.isEmpty());
     }
 }

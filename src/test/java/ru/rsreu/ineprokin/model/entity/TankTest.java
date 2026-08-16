@@ -138,4 +138,60 @@ class TankTest {
         assertFalse(tank.isPlayer());
         assertTrue(tank.getPlayerId().isEmpty());
     }
+
+    @Test
+    void healRestoresHealthButNeverAboveMax() {
+        Tank tank = Tank.enemy(0, 0, Direction.UP.headingDegrees());
+        tank.takeDamage(90);
+
+        tank.heal(30);
+        assertEquals(40, tank.getHealth());
+
+        tank.heal(1000);
+        assertEquals(Tank.MAX_HEALTH, tank.getHealth());
+    }
+
+    @Test
+    void rapidReloadSpeedsUpReloadWhileActive() {
+        Tank tank = new Tank(0, 0, Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
+        tank.tryFire();
+        assertFalse(tank.canFire());
+
+        tank.applyRapidReload(1.0, 4.0); // на секунду вчетверо быстрее
+        tank.update(Tank.PLAYER_RELOAD_SECONDS / 4.0);
+
+        assertTrue(tank.canFire()); // без бонуса такого времени бы не хватило
+    }
+
+    @Test
+    void rapidReloadStopsApplyingAfterItExpires() {
+        Tank tank = new Tank(0, 0, Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
+        tank.tryFire();
+
+        tank.applyRapidReload(0.2, 2.0);
+        tank.update(0.2); // весь бонус израсходован здесь — перезарядка накопилась вдвое быстрее (0.4 из 0.8 c)
+        assertFalse(tank.canFire());
+
+        tank.update(0.3); // бонус уже истёк — обычная скорость (0.4 + 0.3 = 0.7 из 0.8 c)
+        assertFalse(tank.canFire());
+
+        tank.update(0.15); // с запасом добираем до 0.8 c
+        assertTrue(tank.canFire());
+    }
+
+    @Test
+    void invulnerableTankIgnoresDamageUntilItExpires() {
+        Tank tank = Tank.enemy(0, 0, Direction.UP.headingDegrees());
+        tank.grantInvulnerability(1.0);
+
+        tank.takeDamage(50);
+        assertEquals(Tank.MAX_HEALTH, tank.getHealth());
+        assertTrue(tank.isInvulnerable());
+
+        tank.update(1.1);
+        assertFalse(tank.isInvulnerable());
+
+        tank.takeDamage(50);
+        assertEquals(Tank.MAX_HEALTH - 50, tank.getHealth());
+    }
 }

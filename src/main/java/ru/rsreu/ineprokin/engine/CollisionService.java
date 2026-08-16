@@ -2,6 +2,9 @@ package ru.rsreu.ineprokin.engine;
 
 import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Bullet;
+import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
+import ru.rsreu.ineprokin.model.entity.Pickup;
+import ru.rsreu.ineprokin.model.entity.PickupType;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.map.GameMap;
 
@@ -10,7 +13,8 @@ import java.util.List;
 
 /**
  * Вся геометрия столкновений в одном месте: танк со стеной, пуля со стеной,
- * пуля с танком, танк с танком.
+ * пуля с танком, танк с танком, пуля с бочкой, взрыв бочки с танками,
+ * танк с бонусом.
  */
 public final class CollisionService {
 
@@ -43,9 +47,7 @@ public final class CollisionService {
             if (other == moving || other.isDestroyed()) {
                 continue;
             }
-            boolean overlapsX = x + Tank.SIZE > other.getX() && x < other.getX() + Tank.SIZE;
-            boolean overlapsY = y + Tank.SIZE > other.getY() && y < other.getY() + Tank.SIZE;
-            if (overlapsX && overlapsY) {
+            if (this.boxesOverlap(x, y, Tank.SIZE, other.getX(), other.getY(), Tank.SIZE)) {
                 return other;
             }
         }
@@ -164,7 +166,7 @@ public final class CollisionService {
                 if (tank.isDestroyed() || tank.isPlayer() == bullet.isFromPlayer()) {
                     continue; // без дружественного огня
                 }
-                if (this.bulletHitsTank(bullet, tank)) {
+                if (this.bulletHitsBox(bullet, tank.getX(), tank.getY(), Tank.SIZE)) {
                     tank.takeDamage(bullet.getDamage());
                     bullet.destroy();
                     if (tank.isDestroyed()) {
@@ -177,9 +179,95 @@ public final class CollisionService {
         return scorers;
     }
 
-    private boolean bulletHitsTank(Bullet bullet, Tank tank) {
-        boolean overlapsX = bullet.getX() + Bullet.RADIUS > tank.getX() && bullet.getX() - Bullet.RADIUS < tank.getX() + Tank.SIZE;
-        boolean overlapsY = bullet.getY() + Bullet.RADIUS > tank.getY() && bullet.getY() - Bullet.RADIUS < tank.getY() + Tank.SIZE;
+    /**
+     * Обрабатывает попадания пуль по бочкам: разносит бочку от любого попадания
+     * и задевает взрывом всех танков в радиусе — не разбирая, свои они или
+     * чужие, даже того, кто стрелял.
+     *
+     * @return {@link PlayerId} стрелка за каждый вражеский танк, убитый
+     *         взрывом, — как и при обычном попадании, очки достаются тому,
+     *         чья пуля подорвала бочку
+     */
+    public List<PlayerId> resolveBulletBarrelHits(List<Bullet> bullets, List<ExplosiveBarrel> barrels, List<Tank> tanks) {
+        List<PlayerId> scorers = new ArrayList<>();
+
+        for (Bullet bullet : bullets) {
+            if (bullet.isDestroyed()) {
+                continue;
+            }
+            for (ExplosiveBarrel barrel : barrels) {
+                if (barrel.isDestroyed()) {
+                    continue;
+                }
+                if (this.bulletHitsBox(bullet, barrel.getX(), barrel.getY(), ExplosiveBarrel.SIZE)) {
+                    bullet.destroy();
+                    barrel.takeDamage(1);
+                    this.applyExplosionDamage(barrel, bullet, tanks, scorers);
+                    break;
+                }
+            }
+        }
+        return scorers;
+    }
+
+    private void applyExplosionDamage(ExplosiveBarrel barrel, Bullet triggeringBullet, List<Tank> tanks, List<PlayerId> scorers) {
+        double centerX = barrel.getX() + ExplosiveBarrel.SIZE / 2.0;
+        double centerY = barrel.getY() + ExplosiveBarrel.SIZE / 2.0;
+
+        for (Tank tank : tanks) {
+            if (tank.isDestroyed()) {
+                continue;
+            }
+            double tankCenterX = tank.getX() + Tank.SIZE / 2.0;
+            double tankCenterY = tank.getY() + Tank.SIZE / 2.0;
+            if (Math.hypot(tankCenterX - centerX, tankCenterY - centerY) > ExplosiveBarrel.EXPLOSION_RADIUS) {
+                continue;
+            }
+            tank.takeDamage(ExplosiveBarrel.EXPLOSION_DAMAGE);
+            if (triggeringBullet.isFromPlayer() && !tank.isPlayer() && tank.isDestroyed()) {
+                triggeringBullet.getShooterId().ifPresent(scorers::add);
+            }
+        }
+    }
+
+    /**
+     * Собирает бонусы, до которых доехал танк игрока — ИИ-танки бонусы не
+     * подбирают. Сам эффект бонуса эта запись не несёт, только кто и что
+     * подобрал; применяет его {@code GameWorld}, зная про очки и жизни.
+     */
+    public record PickupCollection(Tank tank, PickupType type) {
+    }
+
+    public List<PickupCollection> resolvePickupCollisions(List<Pickup> pickups, List<Tank> tanks) {
+        List<PickupCollection> collections = new ArrayList<>();
+
+        for (Pickup pickup : pickups) {
+            if (pickup.isDestroyed()) {
+                continue;
+            }
+            for (Tank tank : tanks) {
+                if (tank.isDestroyed() || !tank.isPlayer()) {
+                    continue;
+                }
+                if (this.boxesOverlap(tank.getX(), tank.getY(), Tank.SIZE, pickup.getX(), pickup.getY(), Pickup.SIZE)) {
+                    pickup.collect();
+                    collections.add(new PickupCollection(tank, pickup.getType()));
+                    break;
+                }
+            }
+        }
+        return collections;
+    }
+
+    private boolean bulletHitsBox(Bullet bullet, double boxX, double boxY, double boxSize) {
+        boolean overlapsX = bullet.getX() + Bullet.RADIUS > boxX && bullet.getX() - Bullet.RADIUS < boxX + boxSize;
+        boolean overlapsY = bullet.getY() + Bullet.RADIUS > boxY && bullet.getY() - Bullet.RADIUS < boxY + boxSize;
+        return overlapsX && overlapsY;
+    }
+
+    private boolean boxesOverlap(double firstX, double firstY, double firstSize, double secondX, double secondY, double secondSize) {
+        boolean overlapsX = firstX + firstSize > secondX && firstX < secondX + secondSize;
+        boolean overlapsY = firstY + firstSize > secondY && firstY < secondY + secondSize;
         return overlapsX && overlapsY;
     }
 }

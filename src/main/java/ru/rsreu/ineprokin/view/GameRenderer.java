@@ -8,11 +8,15 @@ import javafx.scene.text.FontWeight;
 import javafx.scene.text.TextAlignment;
 import ru.rsreu.ineprokin.config.ThemeConfig;
 import ru.rsreu.ineprokin.model.PlayerId;
+import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
 import ru.rsreu.ineprokin.model.entity.GameState;
+import ru.rsreu.ineprokin.model.entity.Pickup;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.map.GameMap;
+import ru.rsreu.ineprokin.viewmodel.dto.BarrelView;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
+import ru.rsreu.ineprokin.viewmodel.dto.PickupView;
 import ru.rsreu.ineprokin.viewmodel.dto.PlayerHudInfo;
 import ru.rsreu.ineprokin.viewmodel.dto.TankView;
 
@@ -56,6 +60,12 @@ public final class GameRenderer {
 
         this.drawBackground(gc, width, height, hudHeight);
         this.drawMap(gc, snapshot.map(), hudHeight);
+        for (BarrelView barrel : snapshot.barrels()) {
+            this.drawBarrel(gc, barrel, hudHeight);
+        }
+        for (PickupView pickup : snapshot.pickups()) {
+            this.drawPickup(gc, pickup, hudHeight);
+        }
         for (TankView tank : snapshot.tanks()) {
             this.drawTank(gc, tank, hudHeight);
         }
@@ -89,6 +99,13 @@ public final class GameRenderer {
     }
 
     private void drawTank(GraphicsContext gc, TankView tank, double hudHeight) {
+        // Пока танк неуязвим (сразу после появления/возрождения), корпус мигает —
+        // видно по настенным часам, а не по состоянию партии, поэтому не нужно
+        // тащить время тика через снимок: достаточно самого факта неуязвимости.
+        if (tank.invulnerable() && (System.nanoTime() / 120_000_000L) % 2 != 0) {
+            return;
+        }
+
         double x = tank.x();
         double y = this.mapY(tank.y(), hudHeight);
         double centerX = x + GameRenderer.TANK_SIZE / 2.0;
@@ -114,6 +131,50 @@ public final class GameRenderer {
         }
         // Кольцо перезарядки игрока рисует drawHud в неподвижной полосе HUD,
         // а не здесь, у самого танка на поле боя.
+    }
+
+    /** Бочка: тёмный корпус с крестом-предупреждением — стоит на карте, пока в неё не попадёт пуля. */
+    private void drawBarrel(GraphicsContext gc, BarrelView barrel, double hudHeight) {
+        double x = barrel.x();
+        double y = this.mapY(barrel.y(), hudHeight);
+        double size = ExplosiveBarrel.SIZE;
+
+        gc.setFill(this.theme.barrelBody());
+        gc.fillRect(x, y, size, size);
+
+        gc.setStroke(this.theme.barrelMark());
+        gc.setLineWidth(3);
+        gc.strokeLine(x + 6, y + size / 2.0, x + size - 6, y + size / 2.0);
+        gc.strokeLine(x + size / 2.0, y + 6, x + size / 2.0, y + size - 6);
+    }
+
+    /** Бонус: цвет и значок зависят от типа — аптечка (крест), доп. жизнь (кружок), ускоренная перезарядка (треугольник). */
+    private void drawPickup(GraphicsContext gc, PickupView pickup, double hudHeight) {
+        double x = pickup.x();
+        double y = this.mapY(pickup.y(), hudHeight);
+        double size = Pickup.SIZE;
+
+        switch (pickup.type()) {
+            case MEDKIT -> {
+                gc.setFill(this.theme.pickupMedkitBody());
+                gc.fillRect(x, y, size, size);
+                gc.setStroke(this.theme.pickupMedkitMark());
+                gc.setLineWidth(4);
+                gc.strokeLine(x + size / 2.0, y + 5, x + size / 2.0, y + size - 5);
+                gc.strokeLine(x + 5, y + size / 2.0, x + size - 5, y + size / 2.0);
+            }
+            case EXTRA_LIFE -> {
+                gc.setFill(this.theme.pickupExtraLifeBody());
+                gc.fillOval(x, y, size, size);
+            }
+            case RAPID_RELOAD -> {
+                gc.setFill(this.theme.pickupRapidReloadBody());
+                gc.fillPolygon(
+                        new double[]{x + size / 2.0, x + size, x, },
+                        new double[]{y, y + size, y + size},
+                        3);
+            }
+        }
     }
 
     private Color hullColorFor(PlayerId playerId) {
@@ -212,7 +273,12 @@ public final class GameRenderer {
         gc.setFill(this.theme.hudText());
         gc.fillText("Очки: " + info.score(), 110, statsY);
         gc.fillText("Жизни: " + info.health() + " / " + info.maxHealth(), 250, statsY);
+        if (info.extraLives() > 0) {
+            gc.setFill(this.theme.pickupExtraLifeBody());
+            gc.fillText("+" + info.extraLives(), 430, statsY);
+        }
 
+        gc.setFill(this.theme.hudText());
         gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 14));
         gc.fillText("Орудие:", 16, reloadY);
         this.drawReloadRing(gc, 78, reloadY - 5, info.reloadProgress());

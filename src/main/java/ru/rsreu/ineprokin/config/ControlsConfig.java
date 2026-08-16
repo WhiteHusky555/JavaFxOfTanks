@@ -1,7 +1,6 @@
 package ru.rsreu.ineprokin.config;
 
 import javafx.scene.input.KeyCode;
-import ru.rsreu.ineprokin.model.geometry.Direction;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,14 +19,14 @@ public final class ControlsConfig {
 
     private static final String RESOURCE_PATH = "/ru/rsreu/ineprokin/controls.properties";
 
-    private final Map<Direction, Set<KeyCode>> movementKeys;
+    private final Map<SteeringInput, Set<KeyCode>> steeringKeys;
     private final Set<KeyCode> fireKeys;
     private final Set<KeyCode> pauseKeys;
     private final Set<KeyCode> backKeys;
 
-    private ControlsConfig(Map<Direction, Set<KeyCode>> movementKeys, Set<KeyCode> fireKeys,
+    private ControlsConfig(Map<SteeringInput, Set<KeyCode>> steeringKeys, Set<KeyCode> fireKeys,
                             Set<KeyCode> pauseKeys, Set<KeyCode> backKeys) {
-        this.movementKeys = movementKeys;
+        this.steeringKeys = steeringKeys;
         this.fireKeys = fireKeys;
         this.pauseKeys = pauseKeys;
         this.backKeys = backKeys;
@@ -42,17 +41,17 @@ public final class ControlsConfig {
             Properties properties = new Properties();
             properties.load(input);
 
-            Map<Direction, Set<KeyCode>> movement = new EnumMap<>(Direction.class);
-            movement.put(Direction.UP, ControlsConfig.parseKeys(properties, "move.up"));
-            movement.put(Direction.DOWN, ControlsConfig.parseKeys(properties, "move.down"));
-            movement.put(Direction.LEFT, ControlsConfig.parseKeys(properties, "move.left"));
-            movement.put(Direction.RIGHT, ControlsConfig.parseKeys(properties, "move.right"));
+            Map<SteeringInput, Set<KeyCode>> steering = new EnumMap<>(SteeringInput.class);
+            steering.put(SteeringInput.MOVE_FORWARD, ControlsConfig.parseKeys(properties, "move.forward"));
+            steering.put(SteeringInput.MOVE_BACKWARD, ControlsConfig.parseKeys(properties, "move.backward"));
+            steering.put(SteeringInput.TURN_LEFT, ControlsConfig.parseKeys(properties, "turn.left"));
+            steering.put(SteeringInput.TURN_RIGHT, ControlsConfig.parseKeys(properties, "turn.right"));
 
             Set<KeyCode> fire = ControlsConfig.parseKeys(properties, "fire");
             Set<KeyCode> pause = ControlsConfig.parseKeys(properties, "pause");
             Set<KeyCode> back = ControlsConfig.parseKeys(properties, "back");
 
-            return new ControlsConfig(movement, fire, pause, back);
+            return new ControlsConfig(steering, fire, pause, back);
         } catch (IOException e) {
             throw new IllegalStateException("Не удалось прочитать настройки управления", e);
         }
@@ -70,8 +69,8 @@ public final class ControlsConfig {
         return codes;
     }
 
-    public Optional<Direction> directionFor(KeyCode code) {
-        for (Map.Entry<Direction, Set<KeyCode>> entry : this.movementKeys.entrySet()) {
+    public Optional<SteeringInput> steeringInputFor(KeyCode code) {
+        for (Map.Entry<SteeringInput, Set<KeyCode>> entry : this.steeringKeys.entrySet()) {
             if (entry.getValue().contains(code)) {
                 return Optional.of(entry.getKey());
             }

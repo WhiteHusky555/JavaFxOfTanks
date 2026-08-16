@@ -24,6 +24,7 @@ public record GameSnapshot(
         int score,
         int playerHealth,
         int playerMaxHealth,
+        double playerReloadProgress,
         GameState state,
         double fps,
         boolean resultsVisible,

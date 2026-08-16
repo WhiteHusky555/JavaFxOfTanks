@@ -76,11 +76,11 @@ public final class GameView {
             this.viewModel.onFireRequested();
             return;
         }
-        this.controls.directionFor(code).ifPresent(this.viewModel::onDirectionKeyDown);
+        this.controls.steeringInputFor(code).ifPresent(input -> this.viewModel.onSteeringInputChanged(input, true));
     }
 
     private void handleKeyReleased(KeyCode code) {
-        this.controls.directionFor(code).ifPresent(this.viewModel::onDirectionKeyUp);
+        this.controls.steeringInputFor(code).ifPresent(input -> this.viewModel.onSteeringInputChanged(input, false));
     }
 
     /** Выход с игрового экрана — по Esc или по завершении отсчёта на экране результатов. */

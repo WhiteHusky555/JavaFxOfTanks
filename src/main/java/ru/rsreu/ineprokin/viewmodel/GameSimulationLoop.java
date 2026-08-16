@@ -1,17 +1,16 @@
 package ru.rsreu.ineprokin.viewmodel;
 
 import javafx.application.Platform;
+import ru.rsreu.ineprokin.config.SteeringInput;
 import ru.rsreu.ineprokin.engine.GameConfig;
 import ru.rsreu.ineprokin.engine.GameWorld;
 import ru.rsreu.ineprokin.model.entity.GameState;
 import ru.rsreu.ineprokin.model.entity.PlayerId;
-import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
 import ru.rsreu.ineprokin.viewmodel.dto.TankView;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
@@ -29,12 +28,12 @@ import java.util.logging.Logger;
  * <p>
  * Поток JavaFX (поток отрисовки {@code Canvas}) и поток симуляции обмениваются
  * данными без единого {@code synchronized}: команды игроков публикуются
- * в потокобезопасных {@link ConcurrentHashMap}/{@link AtomicBoolean} полях
- * (пишет поток JavaFX, читает поток симуляции), а состояние мира — в виде
- * неизменяемого {@link GameSnapshot}, который поток симуляции кладёт
- * в {@link AtomicReference}, а поток JavaFX оттуда читает. Делить нечего —
- * разделяются только ссылки на неизменяемые объекты, поэтому блокировки
- * не нужны в принципе, а не просто "пока не понадобились".
+ * в потокобезопасных множествах ({@link ConcurrentHashMap#newKeySet()}) и
+ * {@link AtomicBoolean} (пишет поток JavaFX, читает поток симуляции), а
+ * состояние мира — в виде неизменяемого {@link GameSnapshot}, который поток
+ * симуляции кладёт в {@link AtomicReference}, а поток JavaFX оттуда читает.
+ * Делить нечего — разделяются только ссылки на неизменяемые объекты, поэтому
+ * блокировки не нужны в принципе, а не просто "пока не понадобились".
  * <p>
  * Входные команды уже адресуются по {@link PlayerId}, хотя сегодня используется
  * только {@link PlayerId#PLAYER_ONE} — очередь на добавление второго игрока
@@ -54,7 +53,11 @@ public final class GameSimulationLoop implements Runnable {
     private final GameWorld world;
     private final ScheduledExecutorService executor;
     private final AtomicReference<GameSnapshot> latestSnapshot;
-    private final Map<PlayerId, Direction> heldDirections = new ConcurrentHashMap<>();
+
+    private final Set<PlayerId> turnLeftPlayers = ConcurrentHashMap.newKeySet();
+    private final Set<PlayerId> turnRightPlayers = ConcurrentHashMap.newKeySet();
+    private final Set<PlayerId> moveForwardPlayers = ConcurrentHashMap.newKeySet();
+    private final Set<PlayerId> moveBackwardPlayers = ConcurrentHashMap.newKeySet();
     private final Set<PlayerId> firePendingPlayers = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean pauseToggleRequested = new AtomicBoolean(false);
 
@@ -122,7 +125,13 @@ public final class GameSimulationLoop implements Runnable {
     }
 
     private void applyPendingInput(double deltaTimeSeconds) {
-        this.heldDirections.forEach((playerId, direction) -> this.world.movePlayer(playerId, direction, deltaTimeSeconds));
+        for (PlayerId playerId : PlayerId.values()) {
+            double turnDirection = this.axisValue(playerId, this.turnLeftPlayers, this.turnRightPlayers);
+            double throttle = this.axisValue(playerId, this.moveBackwardPlayers, this.moveForwardPlayers);
+            if (turnDirection != 0 || throttle != 0) {
+                this.world.steerPlayer(playerId, turnDirection, throttle, deltaTimeSeconds);
+            }
+        }
 
         for (PlayerId playerId : PlayerId.values()) {
             if (this.firePendingPlayers.remove(playerId)) {
@@ -132,6 +141,18 @@ public final class GameSimulationLoop implements Runnable {
         if (this.pauseToggleRequested.getAndSet(false)) {
             this.world.togglePause();
         }
+    }
+
+    /** {@code -1}, если активна только "отрицательная" клавиша, {@code +1} — только "положительная", иначе {@code 0}. */
+    private double axisValue(PlayerId playerId, Set<PlayerId> negative, Set<PlayerId> positive) {
+        double value = 0;
+        if (negative.contains(playerId)) {
+            value -= 1;
+        }
+        if (positive.contains(playerId)) {
+            value += 1;
+        }
+        return value;
     }
 
     private void advanceResultsCountdown(double deltaTimeSeconds) {
@@ -159,8 +180,8 @@ public final class GameSimulationLoop implements Runnable {
 
         List<TankView> tankViews = this.world.getTanks().stream()
                 .map(tank -> new TankView(
-                        tank.getX(), tank.getY(), tank.getDirection(),
-                        tank.getPlayerId().orElse(null), tank.getHealth(), tank.getMaxHealth()))
+                        tank.getX(), tank.getY(), tank.getHeadingDegrees(),
+                        tank.getPlayerId().orElse(null), tank.getHealth(), tank.getMaxHealth(), tank.getReloadProgress()))
                 .toList();
         List<BulletView> bulletViews = this.world.getBullets().stream()
                 .map(bullet -> new BulletView(bullet.getX(), bullet.getY(), bullet.isFromPlayer()))
@@ -172,6 +193,7 @@ public final class GameSimulationLoop implements Runnable {
                 this.world.getMap(), tankViews, bulletViews,
                 this.world.getScore(),
                 this.world.getPlayerHealth(PlayerId.PLAYER_ONE), this.world.getPlayerMaxHealth(PlayerId.PLAYER_ONE),
+                this.world.getPlayerReloadProgress(PlayerId.PLAYER_ONE),
                 this.world.getState(), this.smoothedFps,
                 this.world.getState() == GameState.GAME_OVER, secondsLeft);
     }
@@ -180,18 +202,23 @@ public final class GameSimulationLoop implements Runnable {
         return this.latestSnapshot.get();
     }
 
-    public void setHeldDirection(PlayerId playerId, Direction direction) {
-        this.heldDirections.put(playerId, direction);
+    /** Клавиша действия {@code input} нажата ({@code active=true}) или отпущена ({@code active=false}). */
+    public void setSteering(PlayerId playerId, SteeringInput input, boolean active) {
+        Set<PlayerId> target = this.playersFor(input);
+        if (active) {
+            target.add(playerId);
+        } else {
+            target.remove(playerId);
+        }
     }
 
-    /**
-     * Отпущена клавиша {@code direction} игрока {@code playerId}. Сбрасываем
-     * удержание, только если она и была активной — иначе отпускание "старой"
-     * клавиши могло бы ошибочно остановить танк, уже переключившийся на
-     * другое направление.
-     */
-    public void clearHeldDirectionIfMatches(PlayerId playerId, Direction direction) {
-        this.heldDirections.computeIfPresent(playerId, (id, current) -> current == direction ? null : current);
+    private Set<PlayerId> playersFor(SteeringInput input) {
+        return switch (input) {
+            case TURN_LEFT -> this.turnLeftPlayers;
+            case TURN_RIGHT -> this.turnRightPlayers;
+            case MOVE_FORWARD -> this.moveForwardPlayers;
+            case MOVE_BACKWARD -> this.moveBackwardPlayers;
+        };
     }
 
     public void requestFire(PlayerId playerId) {

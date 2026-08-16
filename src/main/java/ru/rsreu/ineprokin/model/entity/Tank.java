@@ -9,10 +9,16 @@ import java.util.Optional;
 
 /**
  * Танк — игрока или противника. Модель хранит только собственное состояние
- * (здоровье, перезарядку, направление) и не знает ни о карте, ни о других
- * танках: перемещение по полю — забота {@code engine.CollisionService} /
+ * (здоровье, перезарядку, курс) и не знает ни о карте, ни о других танках:
+ * перемещение по полю — забота {@code engine.CollisionService} /
  * {@code engine.GameWorld}, которые вызывают {@link #setPosition(double, double)}
  * только после проверки, что клетка свободна.
+ * <p>
+ * Танк не привязан к четырём сторонам света — он поворачивается на
+ * произвольный угол ({@link #rotate}) и едет вперёд/назад вдоль текущего
+ * курса ({@link #getHeadingDegrees()}). Курс отсчитывается в градусах по
+ * часовой стрелке от направления "вверх": 0° — вверх, 90° — вправо,
+ * 180° — вниз, 270° — влево.
  * <p>
  * Принадлежность танка игроку выражена не булевым флагом, а {@code null}-able
  * {@link PlayerId}: {@code null} — танк управляется ИИ, конкретное значение —
@@ -28,6 +34,8 @@ public final class Tank extends GameObject implements Damageable, Fireable {
     public static final double PLAYER_SPEED_PX_PER_SEC = 220.0;
     public static final double ENEMY_SPEED_PX_PER_SEC = 150.0;
 
+    public static final double ROTATION_SPEED_DEG_PER_SEC = 210.0;
+
     public static final double PLAYER_RELOAD_SECONDS = 0.8;
     public static final double ENEMY_RELOAD_SECONDS = 1.5;
 
@@ -38,16 +46,17 @@ public final class Tank extends GameObject implements Damageable, Fireable {
     private final double speed;
     private final double reloadSeconds;
 
-    private Direction direction;
+    private double headingDegrees;
     private int health;
     private double timeSinceLastShot;
 
     /**
-     * @param playerId {@code null} для танка под управлением ИИ, иначе — владелец-игрок
+     * @param headingDegrees курс в градусах по часовой стрелке от направления "вверх"
+     * @param playerId       {@code null} для танка под управлением ИИ, иначе — владелец-игрок
      */
-    public Tank(double startX, double startY, Direction startDirection, PlayerId playerId) {
+    public Tank(double startX, double startY, double headingDegrees, PlayerId playerId) {
         super(startX, startY);
-        this.direction = startDirection;
+        this.headingDegrees = Tank.normalizeDegrees(headingDegrees);
         this.playerId = playerId;
         this.health = MAX_HEALTH;
         this.speed = playerId != null ? PLAYER_SPEED_PX_PER_SEC : ENEMY_SPEED_PX_PER_SEC;
@@ -57,8 +66,8 @@ public final class Tank extends GameObject implements Damageable, Fireable {
     }
 
     /** Удобный фабричный метод для читаемости в местах, создающих вражеские танки. */
-    public static Tank enemy(double startX, double startY, Direction startDirection) {
-        return new Tank(startX, startY, startDirection, null);
+    public static Tank enemy(double startX, double startY, double headingDegrees) {
+        return new Tank(startX, startY, headingDegrees, null);
     }
 
     @Override
@@ -77,6 +86,11 @@ public final class Tank extends GameObject implements Damageable, Fireable {
         return this.timeSinceLastShot >= this.reloadSeconds;
     }
 
+    /** Доля перезарядки орудия: {@code 0.0} сразу после выстрела, {@code 1.0} — орудие готово. */
+    public double getReloadProgress() {
+        return Math.min(1.0, this.timeSinceLastShot / this.reloadSeconds);
+    }
+
     @Override
     public Optional<BulletSpawnRequest> tryFire() {
         if (!this.canFire()) {
@@ -86,10 +100,10 @@ public final class Tank extends GameObject implements Damageable, Fireable {
 
         double centerX = this.getX() + SIZE / 2.0;
         double centerY = this.getY() + SIZE / 2.0;
-        double bulletX = centerX + this.direction.dx() * MUZZLE_OFFSET;
-        double bulletY = centerY + this.direction.dy() * MUZZLE_OFFSET;
+        double bulletX = centerX + this.forwardX() * MUZZLE_OFFSET;
+        double bulletY = centerY + this.forwardY() * MUZZLE_OFFSET;
 
-        return Optional.of(new BulletSpawnRequest(bulletX, bulletY, this.direction, this.isPlayer()));
+        return Optional.of(new BulletSpawnRequest(bulletX, bulletY, this.headingDegrees, this.isPlayer()));
     }
 
     @Override
@@ -97,12 +111,39 @@ public final class Tank extends GameObject implements Damageable, Fireable {
         this.health = Math.max(0, this.health - amount);
     }
 
-    public Direction getDirection() {
-        return this.direction;
+    /**
+     * Поворачивает танк на месте на скорость {@link #ROTATION_SPEED_DEG_PER_SEC}.
+     *
+     * @param turnDirection знак задаёт сторону поворота: отрицательный — против часовой (влево),
+     *                      положительный — по часовой (вправо); величина не важна, учитывается только знак
+     */
+    public void rotate(double turnDirection, double deltaTimeSeconds) {
+        double delta = Math.signum(turnDirection) * ROTATION_SPEED_DEG_PER_SEC * deltaTimeSeconds;
+        this.headingDegrees = Tank.normalizeDegrees(this.headingDegrees + delta);
     }
 
-    public void setDirection(Direction direction) {
-        this.direction = direction;
+    /** Мгновенно разворачивает танк на один из четырёх кардинальных курсов — так решает двигаться простой ИИ. */
+    public void faceDirection(Direction direction) {
+        this.headingDegrees = direction.headingDegrees();
+    }
+
+    public double getHeadingDegrees() {
+        return this.headingDegrees;
+    }
+
+    /** X-компонента единичного вектора "вперёд" при текущем курсе. */
+    public double forwardX() {
+        return Math.sin(Math.toRadians(this.headingDegrees));
+    }
+
+    /** Y-компонента единичного вектора "вперёд" при текущем курсе (ось Y направлена вниз). */
+    public double forwardY() {
+        return -Math.cos(Math.toRadians(this.headingDegrees));
+    }
+
+    private static double normalizeDegrees(double degrees) {
+        double normalized = degrees % 360.0;
+        return normalized < 0 ? normalized + 360.0 : normalized;
     }
 
     /** {@code true}, если танк принадлежит любому из игроков (не ИИ). */

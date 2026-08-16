@@ -34,6 +34,10 @@ public final class CollisionService {
     }
 
     public boolean collidesWithOtherTank(Tank moving, double x, double y, List<Tank> tanks) {
+        return this.findBlockingTank(moving, x, y, tanks) != null;
+    }
+
+    private Tank findBlockingTank(Tank moving, double x, double y, List<Tank> tanks) {
         for (Tank other : tanks) {
             if (other == moving || other.isDestroyed()) {
                 continue;
@@ -41,15 +45,36 @@ public final class CollisionService {
             boolean overlapsX = x + Tank.SIZE > other.getX() && x < other.getX() + Tank.SIZE;
             boolean overlapsY = y + Tank.SIZE > other.getY() && y < other.getY() + Tank.SIZE;
             if (overlapsX && overlapsY) {
-                return true;
+                return other;
             }
         }
-        return false;
+        return null;
     }
 
-    /** Пытается передвинуть танк в новую точку, если она не занята стеной или другим танком. */
+    /**
+     * Пытается передвинуть танк в новую точку. Стену объехать нельзя, а вот
+     * другой танк, оказавшийся на пути, толкается на ту же самую дельту
+     * движения — если только у него самого есть куда сдвинуться. Толкается
+     * только один танк за раз: если он упирается в стену или в третий танк,
+     * толчок не проходит и мы сами тоже остаёмся на месте.
+     */
     public boolean tryMoveTank(Tank tank, double newX, double newY, GameMap map, List<Tank> tanks) {
-        if (this.collidesWithWall(map, newX, newY, Tank.SIZE) || this.collidesWithOtherTank(tank, newX, newY, tanks)) {
+        if (this.collidesWithWall(map, newX, newY, Tank.SIZE)) {
+            return false;
+        }
+        Tank blocker = this.findBlockingTank(tank, newX, newY, tanks);
+        if (blocker != null && !this.tryPush(blocker, newX - tank.getX(), newY - tank.getY(), map, tanks)) {
+            return false;
+        }
+        tank.setPosition(newX, newY);
+        return true;
+    }
+
+    /** Сдвигает {@code tank} на вектор {@code (dx, dy)}, если это не заводит его в стену или в третий танк. */
+    private boolean tryPush(Tank tank, double dx, double dy, GameMap map, List<Tank> tanks) {
+        double newX = tank.getX() + dx;
+        double newY = tank.getY() + dy;
+        if (this.collidesWithWall(map, newX, newY, Tank.SIZE) || this.findBlockingTank(tank, newX, newY, tanks) != null) {
             return false;
         }
         tank.setPosition(newX, newY);

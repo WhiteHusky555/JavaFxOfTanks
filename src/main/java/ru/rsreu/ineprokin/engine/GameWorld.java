@@ -76,28 +76,39 @@ public final class GameWorld implements GameWorldView {
 
         for (Map.Entry<PlayerId, TileCoord> entry : this.map.playerStarts().entrySet()) {
             Position start = entry.getValue().toPixelCenter(GameMap.TILE_SIZE, Tank.SIZE);
-            Tank tank = new Tank(start.x(), start.y(), Direction.UP, entry.getKey());
+            Tank tank = new Tank(start.x(), start.y(), Direction.UP.headingDegrees(), entry.getKey());
             this.playerTanks.put(entry.getKey(), tank);
             this.tanks.add(tank);
         }
 
         for (TileCoord enemyStart : this.map.enemyStarts()) {
             Position position = enemyStart.toPixelCenter(GameMap.TILE_SIZE, Tank.SIZE);
-            this.tanks.add(Tank.enemy(position.x(), position.y(), this.randomDirection()));
+            this.tanks.add(Tank.enemy(position.x(), position.y(), this.randomDirection().headingDegrees()));
         }
     }
 
-    /** Двигает танк игрока {@code playerId}, если это сейчас возможно; вызывается каждый кадр, пока клавиша зажата. */
-    public void movePlayer(PlayerId playerId, Direction direction, double deltaTimeSeconds) {
+    /**
+     * Управляет танком игрока {@code playerId} — вызывается каждый кадр, пока зажата
+     * хоть одна из клавиш управления. Танк не прыгает мгновенно в сторону: он
+     * поворачивается на месте ({@code turnDirection}, знак задаёт сторону) и
+     * едет вперёд/назад вдоль своего курса ({@code throttle}: {@code >0} — вперёд,
+     * {@code <0} — назад, задним ходом медленнее).
+     */
+    public void steerPlayer(PlayerId playerId, double turnDirection, double throttle, double deltaTimeSeconds) {
         Tank tank = this.playerTanks.get(playerId);
         if (tank == null || this.state != GameState.PLAYING || tank.isDestroyed()) {
             return;
         }
-        tank.setDirection(direction);
-        double distance = tank.getSpeed() * deltaTimeSeconds;
-        double newX = tank.getX() + direction.dx() * distance;
-        double newY = tank.getY() + direction.dy() * distance;
-        this.collisionService.tryMoveTank(tank, newX, newY, this.map, this.tanks);
+        if (turnDirection != 0) {
+            tank.rotate(turnDirection, deltaTimeSeconds);
+        }
+        if (throttle != 0) {
+            double speedFactor = throttle < 0 ? GameConfig.REVERSE_SPEED_FACTOR : 1.0;
+            double distance = tank.getSpeed() * speedFactor * deltaTimeSeconds * Math.signum(throttle);
+            double newX = tank.getX() + tank.forwardX() * distance;
+            double newY = tank.getY() + tank.forwardY() * distance;
+            this.collisionService.tryMoveTank(tank, newX, newY, this.map, this.tanks);
+        }
     }
 
     public void firePlayer(PlayerId playerId) {
@@ -134,7 +145,7 @@ public final class GameWorld implements GameWorldView {
         }
 
         List<Tank> killedByPlayer = this.collisionService.resolveBulletHits(this.bullets, this.tanks, this.map);
-        for (Tank ignored : killedByPlayer) {
+        for (int i = 0; i < killedByPlayer.size(); i++) {
             this.score += GameConfig.SCORE_PER_KILL;
             this.spawnReplacementEnemy();
         }
@@ -154,12 +165,13 @@ public final class GameWorld implements GameWorldView {
     }
 
     private void spawnBullet(BulletSpawnRequest request) {
-        this.bullets.add(new Bullet(request.x(), request.y(), request.direction(), request.fromPlayer()));
+        this.bullets.add(new Bullet(request.x(), request.y(), request.headingDegrees(), request.fromPlayer()));
     }
 
     private void spawnReplacementEnemy() {
         this.spawnLocationFinder.findSpawn(this.map, this.tanks, this.random)
-                .ifPresent(position -> this.tanks.add(Tank.enemy(position.x(), position.y(), this.randomDirection())));
+                .ifPresent(position -> this.tanks.add(
+                        Tank.enemy(position.x(), position.y(), this.randomDirection().headingDegrees())));
     }
 
     private Direction randomDirection() {
@@ -202,5 +214,11 @@ public final class GameWorld implements GameWorldView {
     public int getPlayerMaxHealth(PlayerId playerId) {
         Tank tank = this.playerTanks.get(playerId);
         return tank == null ? Tank.MAX_HEALTH : tank.getMaxHealth();
+    }
+
+    /** Доля перезарядки орудия игрока: {@code 1.0} — готово стрелять, {@code 0.0} — только что выстрелил. */
+    public double getPlayerReloadProgress(PlayerId playerId) {
+        Tank tank = this.playerTanks.get(playerId);
+        return tank == null ? 1.0 : tank.getReloadProgress();
     }
 }

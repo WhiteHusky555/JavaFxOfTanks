@@ -1,8 +1,8 @@
 package ru.rsreu.ineprokin.viewmodel;
 
+import ru.rsreu.ineprokin.config.SteeringInput;
 import ru.rsreu.ineprokin.engine.GameWorld;
 import ru.rsreu.ineprokin.model.entity.PlayerId;
-import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
 
 /**
@@ -38,12 +38,9 @@ public final class GameViewModel {
         return this.loop.latestSnapshot();
     }
 
-    public void onDirectionKeyDown(Direction direction) {
-        this.loop.setHeldDirection(PlayerId.PLAYER_ONE, direction);
-    }
-
-    public void onDirectionKeyUp(Direction direction) {
-        this.loop.clearHeldDirectionIfMatches(PlayerId.PLAYER_ONE, direction);
+    /** Клавиша, отвечающая за {@code input}, нажата или отпущена. */
+    public void onSteeringInputChanged(SteeringInput input, boolean active) {
+        this.loop.setSteering(PlayerId.PLAYER_ONE, input, active);
     }
 
     public void onFireRequested() {

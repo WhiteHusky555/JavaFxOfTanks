@@ -28,6 +28,9 @@ public final class ThemeConfig {
     private final Color healthGood;
     private final Color healthMedium;
     private final Color healthLow;
+    private final Color reloadBarBackground;
+    private final Color reloadReady;
+    private final Color reloadCharging;
     private final Color hudText;
     private final Color pauseText;
     private final Color gameOverText;
@@ -46,6 +49,9 @@ public final class ThemeConfig {
         this.healthGood = ThemeConfig.colorOf(properties, "health.good");
         this.healthMedium = ThemeConfig.colorOf(properties, "health.medium");
         this.healthLow = ThemeConfig.colorOf(properties, "health.low");
+        this.reloadBarBackground = ThemeConfig.colorOf(properties, "reload.bar.background");
+        this.reloadReady = ThemeConfig.colorOf(properties, "reload.ready");
+        this.reloadCharging = ThemeConfig.colorOf(properties, "reload.charging");
         this.hudText = ThemeConfig.colorOf(properties, "hud.text");
         this.pauseText = ThemeConfig.colorOf(properties, "pause.text");
         this.gameOverText = ThemeConfig.colorOf(properties, "game.over.text");
@@ -119,6 +125,18 @@ public final class ThemeConfig {
 
     public Color healthLow() {
         return this.healthLow;
+    }
+
+    public Color reloadBarBackground() {
+        return this.reloadBarBackground;
+    }
+
+    public Color reloadReady() {
+        return this.reloadReady;
+    }
+
+    public Color reloadCharging() {
+        return this.reloadCharging;
     }
 
     public Color hudText() {

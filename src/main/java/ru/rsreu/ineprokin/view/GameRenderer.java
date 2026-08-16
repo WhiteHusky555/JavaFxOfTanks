@@ -2,13 +2,13 @@ package ru.rsreu.ineprokin.view;
 
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.ArcType;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.TextAlignment;
 import ru.rsreu.ineprokin.config.ThemeConfig;
 import ru.rsreu.ineprokin.model.entity.GameState;
 import ru.rsreu.ineprokin.model.entity.PlayerId;
-import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.map.GameMap;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
@@ -26,6 +26,8 @@ public final class GameRenderer {
     private static final double TANK_SIZE = 36.0;
     private static final double BULLET_RADIUS = 3.0;
     private static final double HEALTH_BAR_HEIGHT = 6.0;
+    private static final double RELOAD_RING_RADIUS = 7.0;
+    private static final double RELOAD_RING_LINE_WIDTH = 3.0;
 
     private final ThemeConfig theme;
 
@@ -71,22 +73,31 @@ public final class GameRenderer {
     private void drawTank(GraphicsContext gc, TankView tank) {
         double x = tank.x();
         double y = this.mapY(tank.y());
-
-        gc.setFill(this.hullColorFor(tank.playerId()));
-        gc.fillRect(x, y, GameRenderer.TANK_SIZE, GameRenderer.TANK_SIZE);
-
         double centerX = x + GameRenderer.TANK_SIZE / 2.0;
         double centerY = y + GameRenderer.TANK_SIZE / 2.0;
         double turretLength = GameRenderer.TANK_SIZE * 0.75;
-        double endX = centerX + tank.direction().dx() * turretLength;
-        double endY = centerY + tank.direction().dy() * turretLength;
+
+        // Корпус и ствол рисуются в повёрнутой системе координат — курс танка
+        // виден по всей его форме, а не только по отдельной черте-стволу.
+        gc.save();
+        gc.translate(centerX, centerY);
+        gc.rotate(tank.headingDegrees());
+
+        gc.setFill(this.hullColorFor(tank.playerId()));
+        gc.fillRect(-GameRenderer.TANK_SIZE / 2.0, -GameRenderer.TANK_SIZE / 2.0, GameRenderer.TANK_SIZE, GameRenderer.TANK_SIZE);
 
         gc.setStroke(this.theme.turret());
         gc.setLineWidth(4);
-        gc.strokeLine(centerX, centerY, endX, endY);
+        gc.strokeLine(0, 0, 0, -turretLength);
+        gc.restore();
 
         if (!tank.isPlayerControlled() && tank.health() < tank.maxHealth()) {
             this.drawHealthBar(gc, x, y, tank.health(), tank.maxHealth());
+        }
+        if (tank.isPlayerControlled()) {
+            double ringCenterX = x + GameRenderer.TANK_SIZE / 2.0;
+            double ringCenterY = y + GameRenderer.TANK_SIZE + 4.0 + GameRenderer.RELOAD_RING_RADIUS;
+            this.drawReloadRing(gc, ringCenterX, ringCenterY, tank.reloadProgress());
         }
     }
 
@@ -112,6 +123,26 @@ public final class GameRenderer {
         gc.setStroke(this.theme.hudText());
         gc.setLineWidth(1);
         gc.strokeRect(tankX, barY, GameRenderer.TANK_SIZE, GameRenderer.HEALTH_BAR_HEIGHT);
+    }
+
+    /**
+     * Кольцо перезарядки орудия под танком игрока: тонкий фоновый круг и поверх
+     * него дуга, которая заполняет круг по часовой стрелке от 12 часов, пока
+     * орудие перезаряжается, и становится полной окружностью, когда оно готово.
+     */
+    private void drawReloadRing(GraphicsContext gc, double centerX, double centerY, double reloadProgress) {
+        double diameter = GameRenderer.RELOAD_RING_RADIUS * 2;
+        double left = centerX - GameRenderer.RELOAD_RING_RADIUS;
+        double top = centerY - GameRenderer.RELOAD_RING_RADIUS;
+
+        gc.setStroke(this.theme.reloadBarBackground());
+        gc.setLineWidth(GameRenderer.RELOAD_RING_LINE_WIDTH);
+        gc.strokeOval(left, top, diameter, diameter);
+
+        gc.setStroke(reloadProgress >= 1.0 ? this.theme.reloadReady() : this.theme.reloadCharging());
+        gc.setLineWidth(GameRenderer.RELOAD_RING_LINE_WIDTH);
+        // 90° — верх циферблата; отрицательный размах дуги заполняет её по часовой стрелке.
+        gc.strokeArc(left, top, diameter, diameter, 90, -360.0 * reloadProgress, ArcType.OPEN);
     }
 
     private Color healthColorFor(double ratio) {
@@ -143,6 +174,17 @@ public final class GameRenderer {
         gc.setTextAlign(TextAlignment.RIGHT);
         gc.fillText(String.format("FPS: %.0f", snapshot.fps()), width - 16, 34);
         gc.setTextAlign(TextAlignment.LEFT);
+
+        this.drawReloadStatus(gc, snapshot.playerReloadProgress());
+    }
+
+    private void drawReloadStatus(GraphicsContext gc, double reloadProgress) {
+        boolean ready = reloadProgress >= 1.0;
+        String text = ready ? "Орудие: готово" : "Орудие: перезарядка " + (int) (reloadProgress * 100) + "%";
+
+        gc.setFill(ready ? this.theme.reloadReady() : this.theme.reloadCharging());
+        gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 14));
+        gc.fillText(text, 16, 50);
     }
 
     private void drawStateOverlay(GraphicsContext gc, GameSnapshot snapshot, double width, double height) {

@@ -4,6 +4,7 @@ import ru.rsreu.ineprokin.engine.ai.AiDecision;
 import ru.rsreu.ineprokin.engine.ai.AiStrategy;
 import ru.rsreu.ineprokin.model.capability.BulletSpawnRequest;
 import ru.rsreu.ineprokin.model.entity.Tank;
+import ru.rsreu.ineprokin.model.geometry.Direction;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -54,8 +55,10 @@ public final class EnemyAiService {
         if (memory.moveCooldown <= 0) {
             AiDecision decision = this.strategy.decide(tank, world, this.random);
             memory.moving = decision.moving();
-            if (decision.moving()) {
-                tank.setDirection(decision.direction());
+            memory.direction = decision.direction();
+            if (memory.moving) {
+                // ИИ не поворачивает плавно, а сразу смотрит в выбранную сторону света.
+                tank.faceDirection(memory.direction);
             }
             memory.moveCooldown = this.randomBetween(
                     GameConfig.AI_MOVE_DECISION_MIN_SECONDS, GameConfig.AI_MOVE_DECISION_MAX_SECONDS);
@@ -63,8 +66,8 @@ public final class EnemyAiService {
 
         if (memory.moving) {
             double distance = tank.getSpeed() * deltaTimeSeconds;
-            double newX = tank.getX() + tank.getDirection().dx() * distance;
-            double newY = tank.getY() + tank.getDirection().dy() * distance;
+            double newX = tank.getX() + memory.direction.dx() * distance;
+            double newY = tank.getY() + memory.direction.dy() * distance;
             this.collisionService.tryMoveTank(tank, newX, newY, world.getMap(), world.getTanks());
         }
     }
@@ -86,11 +89,12 @@ public final class EnemyAiService {
         return min + this.random.nextDouble() * (max - min);
     }
 
-    /** Таймеры одного вражеского танка между опросами {@link AiStrategy}. */
+    /** Таймеры и последнее решение одного вражеского танка между опросами {@link AiStrategy}. */
     private static final class Memory {
         private double moveCooldown;
         private double fireCooldown;
         private boolean moving;
+        private Direction direction = Direction.UP;
 
         private Memory(Random random) {
             // Разносим фазы танков во времени, чтобы все враги не "думали" синхронно.

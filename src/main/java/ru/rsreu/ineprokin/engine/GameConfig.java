@@ -31,6 +31,9 @@ public final class GameConfig {
     /** Вероятность того, что при движении танк выберет направление в сторону игрока, а не случайное. */
     public static final double AI_CHASE_BIAS = 0.35;
 
+    /** Во столько раз танк едет медленнее задним ходом, чем вперёд. */
+    public static final double REVERSE_SPEED_FACTOR = 0.6;
+
     private GameConfig() {
     }
 }

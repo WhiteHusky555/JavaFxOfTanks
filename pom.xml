@@ -11,7 +11,7 @@
 
     <name>JavaFX of Tanks</name>
     <description>
-        Аркадная игра "Танки" на JavaFX (MVVM), переписанная с прототипа на C++/FLTK.
+        Аркадная игра "Танки" на JavaFX с архитектурой MVVM.
     </description>
 
     <properties>

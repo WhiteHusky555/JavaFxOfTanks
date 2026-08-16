@@ -17,7 +17,6 @@ import java.io.InputStream;
 /**
  * Composition root: единственное место, которое знает про {@link Stage}
  * и умеет собрать пару view/viewmodel для каждого из трёх экранов.
- * Заменяет собой {@code ApplicationController} исходной версии.
  */
 public final class SceneRouter implements Router {
 

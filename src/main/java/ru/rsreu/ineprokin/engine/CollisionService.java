@@ -9,9 +9,7 @@ import java.util.List;
 
 /**
  * Вся геометрия столкновений в одном месте: танк со стеной, пуля со стеной,
- * пуля с танком, танк с танком. В исходной C++-версии эта логика была
- * размазана по {@code GameModel::checkWallCollision} и {@code processCollisions}
- * с повторяющимися инлайн-проверками AABB.
+ * пуля с танком, танк с танком.
  */
 public final class CollisionService {
 

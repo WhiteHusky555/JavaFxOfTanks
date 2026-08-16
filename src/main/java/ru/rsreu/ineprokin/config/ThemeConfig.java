@@ -20,6 +20,7 @@ public final class ThemeConfig {
     private final Color hudBackground;
     private final Color wall;
     private final Color playerHull;
+    private final Color playerTwoHull;
     private final Color enemyHull;
     private final Color turret;
     private final Color bulletPlayer;
@@ -35,12 +36,14 @@ public final class ThemeConfig {
     private final Color pauseText;
     private final Color gameOverText;
     private final Color resultsOverlay;
+    private final Color joinHintText;
 
     private ThemeConfig(Properties properties) {
         this.background = ThemeConfig.colorOf(properties, "background");
         this.hudBackground = ThemeConfig.colorOf(properties, "hud.background");
         this.wall = ThemeConfig.colorOf(properties, "wall");
         this.playerHull = ThemeConfig.colorOf(properties, "player.hull");
+        this.playerTwoHull = ThemeConfig.colorOf(properties, "player.two.hull");
         this.enemyHull = ThemeConfig.colorOf(properties, "enemy.hull");
         this.turret = ThemeConfig.colorOf(properties, "turret");
         this.bulletPlayer = ThemeConfig.colorOf(properties, "bullet.player");
@@ -56,6 +59,7 @@ public final class ThemeConfig {
         this.pauseText = ThemeConfig.colorOf(properties, "pause.text");
         this.gameOverText = ThemeConfig.colorOf(properties, "game.over.text");
         this.resultsOverlay = ThemeConfig.colorOf(properties, "results.overlay");
+        this.joinHintText = ThemeConfig.colorOf(properties, "join.hint.text");
     }
 
     public static ThemeConfig loadDefault() {
@@ -93,6 +97,10 @@ public final class ThemeConfig {
 
     public Color playerHull() {
         return this.playerHull;
+    }
+
+    public Color playerTwoHull() {
+        return this.playerTwoHull;
     }
 
     public Color enemyHull() {
@@ -153,5 +161,9 @@ public final class ThemeConfig {
 
     public Color resultsOverlay() {
         return this.resultsOverlay;
+    }
+
+    public Color joinHintText() {
+        return this.joinHintText;
     }
 }

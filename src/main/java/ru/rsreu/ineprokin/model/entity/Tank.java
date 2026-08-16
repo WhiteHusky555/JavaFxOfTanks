@@ -1,5 +1,6 @@
 package ru.rsreu.ineprokin.model.entity;
 
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.capability.BulletSpawnRequest;
 import ru.rsreu.ineprokin.model.capability.Damageable;
 import ru.rsreu.ineprokin.model.capability.Fireable;
@@ -104,7 +105,7 @@ public final class Tank extends GameObject implements Damageable, Fireable {
         double bulletX = centerX + this.forwardX() * MUZZLE_OFFSET;
         double bulletY = centerY + this.forwardY() * MUZZLE_OFFSET;
 
-        return Optional.of(new BulletSpawnRequest(bulletX, bulletY, this.headingDegrees, this.isPlayer()));
+        return Optional.of(new BulletSpawnRequest(bulletX, bulletY, this.headingDegrees, this.playerId));
     }
 
     @Override

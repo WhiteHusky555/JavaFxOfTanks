@@ -1,6 +1,6 @@
 package ru.rsreu.ineprokin.viewmodel.dto;
 
-import ru.rsreu.ineprokin.model.entity.PlayerId;
+import ru.rsreu.ineprokin.model.PlayerId;
 
 /**
  * Неизменяемый снимок одного танка для отрисовки. Слой представления

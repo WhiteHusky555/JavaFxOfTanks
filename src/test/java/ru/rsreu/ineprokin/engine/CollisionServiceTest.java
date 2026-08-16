@@ -1,8 +1,8 @@
 package ru.rsreu.ineprokin.engine;
 
 import org.junit.jupiter.api.Test;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Bullet;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.map.GameMap;
@@ -101,48 +101,51 @@ class CollisionServiceTest {
     void bulletHittingWallIsDestroyedWithoutHurtingAnyone() {
         CollisionService collisionService = new CollisionService();
         GameMap map = CollisionServiceTest.smallMap();
-        Bullet bullet = new Bullet(2, 2, Direction.UP.headingDegrees(), true); // почти в стене (ряд 0)
+        Bullet bullet = new Bullet(2, 2, Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE); // почти в стене (ряд 0)
 
-        List<Tank> killed = collisionService.resolveBulletHits(List.of(bullet), List.of(), map);
+        List<PlayerId> scorers = collisionService.resolveBulletHits(List.of(bullet), List.of(), map);
 
         assertTrue(bullet.isDestroyed());
-        assertTrue(killed.isEmpty());
+        assertTrue(scorers.isEmpty());
     }
 
     @Test
-    void playerBulletDamagesEnemyTankAndReportsKillOnDeath() {
+    void playerBulletDamagesEnemyTankAndReportsScorerOnDeath() {
         CollisionService collisionService = new CollisionService();
         GameMap map = CollisionServiceTest.smallMap();
         Tank enemy = Tank.enemy(80, 80, Direction.DOWN.headingDegrees());
-        Bullet bullet = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), true);
+        Bullet bullet = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), PlayerId.PLAYER_TWO);
 
-        List<Tank> killed = collisionService.resolveBulletHits(List.of(bullet), List.of(enemy), map);
+        List<PlayerId> scorers = collisionService.resolveBulletHits(List.of(bullet), List.of(enemy), map);
 
         assertTrue(bullet.isDestroyed());
         assertEquals(Tank.MAX_HEALTH - Bullet.DAMAGE, enemy.getHealth());
-        assertTrue(killed.isEmpty()); // одного попадания недостаточно, чтобы уничтожить танк
+        assertTrue(scorers.isEmpty()); // одного попадания недостаточно, чтобы уничтожить танк
 
-        Bullet secondBullet = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), true);
-        Bullet thirdBullet = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), true);
-        Bullet fourthBullet = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), true);
-        collisionService.resolveBulletHits(List.of(secondBullet), List.of(enemy), map);
-        collisionService.resolveBulletHits(List.of(thirdBullet), List.of(enemy), map);
-        List<Tank> finalKill = collisionService.resolveBulletHits(List.of(fourthBullet), List.of(enemy), map);
+        for (int i = 0; i < 2; i++) {
+            Bullet nextBullet = new Bullet(
+                    80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), PlayerId.PLAYER_TWO);
+            collisionService.resolveBulletHits(List.of(nextBullet), List.of(enemy), map);
+        }
+        Bullet killingBlow = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), PlayerId.PLAYER_TWO);
+        List<PlayerId> finalScorers = collisionService.resolveBulletHits(List.of(killingBlow), List.of(enemy), map);
 
         assertTrue(enemy.isDestroyed());
-        assertEquals(List.of(enemy), finalKill);
+        // Именно тот игрок, чья пуля добила танк, получает очко — не любой игрок вообще.
+        assertEquals(List.of(PlayerId.PLAYER_TWO), finalScorers);
     }
 
     @Test
-    void friendlyFireIsIgnored() {
+    void friendlyFireIsIgnoredRegardlessOfWhichPlayerShot() {
         CollisionService collisionService = new CollisionService();
         GameMap map = CollisionServiceTest.smallMap();
-        Tank playerTank = new Tank(80, 80, Direction.DOWN.headingDegrees(), PlayerId.PLAYER_ONE);
-        Bullet playerBullet = new Bullet(80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), true);
+        Tank playerOneTank = new Tank(80, 80, Direction.DOWN.headingDegrees(), PlayerId.PLAYER_ONE);
+        Bullet playerTwoBullet = new Bullet(
+                80 + Tank.SIZE / 2.0, 80 + Tank.SIZE / 2.0, Direction.UP.headingDegrees(), PlayerId.PLAYER_TWO);
 
-        collisionService.resolveBulletHits(List.of(playerBullet), List.of(playerTank), map);
+        collisionService.resolveBulletHits(List.of(playerTwoBullet), List.of(playerOneTank), map);
 
-        assertEquals(Tank.MAX_HEALTH, playerTank.getHealth());
-        assertFalse(playerBullet.isDestroyed());
+        assertEquals(Tank.MAX_HEALTH, playerOneTank.getHealth());
+        assertFalse(playerTwoBullet.isDestroyed());
     }
 }

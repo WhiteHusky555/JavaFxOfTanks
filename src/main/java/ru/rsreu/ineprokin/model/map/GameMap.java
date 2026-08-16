@@ -1,6 +1,6 @@
 package ru.rsreu.ineprokin.model.map;
 
-import ru.rsreu.ineprokin.model.entity.PlayerId;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.geometry.TileCoord;
 
 import java.io.BufferedReader;

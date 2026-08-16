@@ -16,15 +16,17 @@ import java.util.List;
  * на неизменяемый объект. Компактный конструктор дополнительно копирует
  * списки в {@link List#copyOf}, чтобы вызывающий поток не мог случайно
  * продолжить их изменять после публикации снимка.
+ *
+ * @param playerOne итоги первого игрока для HUD
+ * @param playerTwo итоги второго игрока для HUD; {@link PlayerHudInfo#available()} — {@code false},
+ *                  если на этой карте для него нет точки старта
  */
 public record GameSnapshot(
         GameMap map,
         List<TankView> tanks,
         List<BulletView> bullets,
-        int score,
-        int playerHealth,
-        int playerMaxHealth,
-        double playerReloadProgress,
+        PlayerHudInfo playerOne,
+        PlayerHudInfo playerTwo,
         GameState state,
         double fps,
         boolean resultsVisible,

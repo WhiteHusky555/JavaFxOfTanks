@@ -1,7 +1,7 @@
 package ru.rsreu.ineprokin.model.map;
 
 import org.junit.jupiter.api.Test;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.geometry.TileCoord;
 
 import java.io.ByteArrayInputStream;

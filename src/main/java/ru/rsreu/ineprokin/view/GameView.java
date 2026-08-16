@@ -8,12 +8,15 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.layout.StackPane;
 import ru.rsreu.ineprokin.config.ControlsConfig;
 import ru.rsreu.ineprokin.config.ThemeConfig;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.viewmodel.GameViewModel;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
 
 /**
  * Игровой экран: {@link Canvas} плюс перевод клавиатурных событий в команды
- * {@link GameViewModel}.
+ * {@link GameViewModel}. Одно и то же нажатие проверяется на принадлежность
+ * раскладке каждого игрока по очереди — это и есть точка, где живая клавиша
+ * становится командой конкретному {@link PlayerId}, а не просто "игроку".
  * <p>
  * Отрисовка и симуляция партии сознательно разведены по двум разным
  * тактам. Симуляция ({@code viewmodel.GameSimulationLoop}) крутится в
@@ -47,8 +50,9 @@ public final class GameView {
 
     public Scene createScene() {
         GameSnapshot initial = this.viewModel.latestSnapshot();
+        double hudHeight = GameRenderer.hudHeightFor(initial.playerTwo().available());
         double width = initial.map().widthInPixels();
-        double height = initial.map().heightInPixels() + GameRenderer.HUD_HEIGHT;
+        double height = initial.map().heightInPixels() + hudHeight;
 
         Canvas canvas = new Canvas(width, height);
         GraphicsContext graphics = canvas.getGraphicsContext2D();
@@ -72,15 +76,37 @@ public final class GameView {
             this.viewModel.onPauseToggleRequested();
             return;
         }
-        if (this.controls.isFireKey(code)) {
-            this.viewModel.onFireRequested();
-            return;
+        for (PlayerId playerId : PlayerId.values()) {
+            this.dispatchKeyToPlayer(playerId, code, true);
         }
-        this.controls.steeringInputFor(code).ifPresent(input -> this.viewModel.onSteeringInputChanged(input, true));
     }
 
     private void handleKeyReleased(KeyCode code) {
-        this.controls.steeringInputFor(code).ifPresent(input -> this.viewModel.onSteeringInputChanged(input, false));
+        for (PlayerId playerId : PlayerId.values()) {
+            this.dispatchKeyToPlayer(playerId, code, false);
+        }
+    }
+
+    /**
+     * Проверяет, принадлежит ли {@code code} раскладке игрока {@code playerId},
+     * и если да — передаёт команду дальше. Нажатие (не отпускание) любой такой
+     * клавиши заодно подключает игрока к партии, если он ещё не играет;
+     * для уже подключённого игрока это не более чем холостой повторный запрос.
+     */
+    private void dispatchKeyToPlayer(PlayerId playerId, KeyCode code, boolean pressed) {
+        if (this.controls.isFireKey(playerId, code)) {
+            if (pressed) {
+                this.viewModel.onPlayerActivationRequested(playerId);
+                this.viewModel.onFireRequested(playerId);
+            }
+            return;
+        }
+        this.controls.steeringInputFor(playerId, code).ifPresent(input -> {
+            if (pressed) {
+                this.viewModel.onPlayerActivationRequested(playerId);
+            }
+            this.viewModel.onSteeringInputChanged(playerId, input, pressed);
+        });
     }
 
     /** Выход с игрового экрана — по Esc или по завершении отсчёта на экране результатов. */

@@ -1,6 +1,7 @@
 package ru.rsreu.ineprokin.model.entity;
 
 import org.junit.jupiter.api.Test;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.capability.BulletSpawnRequest;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 
@@ -57,6 +58,7 @@ class TankTest {
         assertEquals(Direction.RIGHT.headingDegrees(), request.headingDegrees(), EPSILON);
         assertTrue(request.x() > 100 + Tank.SIZE / 2.0);
         assertTrue(request.fromPlayer());
+        assertEquals(PlayerId.PLAYER_ONE, request.shooterId());
     }
 
     @Test

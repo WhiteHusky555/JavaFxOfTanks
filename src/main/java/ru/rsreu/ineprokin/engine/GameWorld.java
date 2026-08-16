@@ -3,11 +3,11 @@ package ru.rsreu.ineprokin.engine;
 import ru.rsreu.ineprokin.engine.ai.RandomAiStrategy;
 import ru.rsreu.ineprokin.engine.spawn.DefaultSpawnLocationFinder;
 import ru.rsreu.ineprokin.engine.spawn.SpawnLocationFinder;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.capability.BulletSpawnRequest;
 import ru.rsreu.ineprokin.model.capability.Destructible;
 import ru.rsreu.ineprokin.model.entity.Bullet;
 import ru.rsreu.ineprokin.model.entity.GameState;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.geometry.Position;
@@ -28,10 +28,13 @@ import java.util.Random;
  * {@link EnemyAiService} и {@link SpawnLocationFinder} соответственно.
  * {@code GameWorld} — только их оркестратор.
  * <p>
- * Игроки адресуются через {@link PlayerId}, а не как единственный
- * {@code playerTank} — раунд завершается, когда уничтожены все танки
- * игроков, присутствующих на карте, что уже сегодня корректно работает
- * и для одного, и (при появлении второй точки старта) для двух игроков.
+ * Игроки адресуются через {@link PlayerId}, а не единственным полем танка
+ * игрока. {@link PlayerId#PLAYER_ONE} активен с первого кадра партии, если
+ * карта вообще определяет для него точку старта; {@link PlayerId#PLAYER_TWO}
+ * присоединяется позже, посреди партии, через {@link #activatePlayer}.
+ * Раунд заканчивается, когда уничтожены все танки игроков, которые
+ * действительно подключились — если второй игрок так и не присоединился,
+ * его отсутствие никак не влияет на условие поражения.
  */
 public final class GameWorld implements GameWorldView {
 
@@ -44,9 +47,9 @@ public final class GameWorld implements GameWorldView {
     private final List<Tank> tanks = new ArrayList<>();
     private final List<Bullet> bullets = new ArrayList<>();
     private final Map<PlayerId, Tank> playerTanks = new EnumMap<>(PlayerId.class);
+    private final Map<PlayerId, Integer> scores = new EnumMap<>(PlayerId.class);
 
     private GameState state = GameState.PLAYING;
-    private int score;
 
     public GameWorld(GameMap map, CollisionService collisionService, EnemyAiService enemyAiService,
                       SpawnLocationFinder spawnLocationFinder, Random random) {
@@ -66,25 +69,56 @@ public final class GameWorld implements GameWorldView {
         return new GameWorld(map, collisionService, enemyAiService, new DefaultSpawnLocationFinder(), random);
     }
 
-    /** Возвращает партию в начальное состояние: танки — на стартовые позиции, счёт — на ноль. */
+    /** Возвращает партию в начальное состояние: первый игрок на стартовой позиции, счёт — на ноль. */
     public void reset() {
         this.tanks.clear();
         this.bullets.clear();
         this.playerTanks.clear();
-        this.score = 0;
+        this.scores.clear();
+        for (PlayerId playerId : PlayerId.values()) {
+            this.scores.put(playerId, 0);
+        }
         this.state = GameState.PLAYING;
 
-        for (Map.Entry<PlayerId, TileCoord> entry : this.map.playerStarts().entrySet()) {
-            Position start = entry.getValue().toPixelCenter(GameMap.TILE_SIZE, Tank.SIZE);
-            Tank tank = new Tank(start.x(), start.y(), Direction.UP.headingDegrees(), entry.getKey());
-            this.playerTanks.put(entry.getKey(), tank);
-            this.tanks.add(tank);
-        }
+        this.spawnPlayerTank(PlayerId.PLAYER_ONE);
 
         for (TileCoord enemyStart : this.map.enemyStarts()) {
             Position position = enemyStart.toPixelCenter(GameMap.TILE_SIZE, Tank.SIZE);
             this.tanks.add(Tank.enemy(position.x(), position.y(), this.randomDirection().headingDegrees()));
         }
+    }
+
+    /** Есть ли на карте вообще точка старта для этого игрока — не зависит от того, подключился ли он. */
+    public boolean isPlayerAvailable(PlayerId playerId) {
+        return this.map.playerStarts().containsKey(playerId);
+    }
+
+    /** Уже управляет ли этим игроком чей-то танк на поле. */
+    public boolean isPlayerActive(PlayerId playerId) {
+        return this.playerTanks.containsKey(playerId);
+    }
+
+    /**
+     * Подключает игрока {@code playerId} посреди партии: создаёт ему танк на
+     * стартовой позиции с карты. Не делает ничего, если для этого игрока нет
+     * точки старта, он уже подключён или партия уже окончена.
+     */
+    public void activatePlayer(PlayerId playerId) {
+        if (this.isPlayerActive(playerId) || this.state == GameState.GAME_OVER) {
+            return;
+        }
+        this.spawnPlayerTank(playerId);
+    }
+
+    private void spawnPlayerTank(PlayerId playerId) {
+        TileCoord start = this.map.playerStarts().get(playerId);
+        if (start == null) {
+            return;
+        }
+        Position position = start.toPixelCenter(GameMap.TILE_SIZE, Tank.SIZE);
+        Tank tank = new Tank(position.x(), position.y(), Direction.UP.headingDegrees(), playerId);
+        this.playerTanks.put(playerId, tank);
+        this.tanks.add(tank);
     }
 
     /**
@@ -144,9 +178,8 @@ public final class GameWorld implements GameWorldView {
             this.spawnBullet(request);
         }
 
-        List<Tank> killedByPlayer = this.collisionService.resolveBulletHits(this.bullets, this.tanks, this.map);
-        for (int i = 0; i < killedByPlayer.size(); i++) {
-            this.score += GameConfig.SCORE_PER_KILL;
+        for (PlayerId scorer : this.collisionService.resolveBulletHits(this.bullets, this.tanks, this.map)) {
+            this.scores.merge(scorer, GameConfig.SCORE_PER_KILL, Integer::sum);
             this.spawnReplacementEnemy();
         }
 
@@ -161,11 +194,11 @@ public final class GameWorld implements GameWorldView {
     }
 
     private boolean allPlayersDestroyed() {
-        return this.playerTanks.values().stream().allMatch(Tank::isDestroyed);
+        return !this.playerTanks.isEmpty() && this.playerTanks.values().stream().allMatch(Tank::isDestroyed);
     }
 
     private void spawnBullet(BulletSpawnRequest request) {
-        this.bullets.add(new Bullet(request.x(), request.y(), request.headingDegrees(), request.fromPlayer()));
+        this.bullets.add(new Bullet(request.x(), request.y(), request.headingDegrees(), request.shooterId()));
     }
 
     private void spawnReplacementEnemy() {
@@ -198,9 +231,14 @@ public final class GameWorld implements GameWorldView {
         return this.state;
     }
 
+    /** Суммарный счёт всех игроков — например, для итогового экрана. */
     @Override
     public int getScore() {
-        return this.score;
+        return this.scores.values().stream().mapToInt(Integer::intValue).sum();
+    }
+
+    public int getScore(PlayerId playerId) {
+        return this.scores.getOrDefault(playerId, 0);
     }
 
     public int getPlayerHealth(PlayerId playerId) {

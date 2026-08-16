@@ -4,10 +4,11 @@ import javafx.application.Platform;
 import ru.rsreu.ineprokin.config.SteeringInput;
 import ru.rsreu.ineprokin.engine.GameConfig;
 import ru.rsreu.ineprokin.engine.GameWorld;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.GameState;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
+import ru.rsreu.ineprokin.viewmodel.dto.PlayerHudInfo;
 import ru.rsreu.ineprokin.viewmodel.dto.TankView;
 
 import java.util.List;
@@ -35,10 +36,10 @@ import java.util.logging.Logger;
  * Делить нечего — разделяются только ссылки на неизменяемые объекты, поэтому
  * блокировки не нужны в принципе, а не просто "пока не понадобились".
  * <p>
- * Входные команды уже адресуются по {@link PlayerId}, хотя сегодня используется
- * только {@link PlayerId#PLAYER_ONE} — очередь на добавление второго игрока
- * упирается только в {@code view}-слой (вторая раскладка клавиш), не в цикл
- * симуляции или {@link GameWorld}.
+ * Все входные команды адресуются по {@link PlayerId}, включая запрос на
+ * подключение второго игрока ({@link #requestActivation}) — сама партия
+ * ({@link GameWorld}) уже умеет держать произвольный состав игроков, цикл
+ * симуляции лишь передаёт ей команды под правильным идентификатором.
  * <p>
  * Единственный момент, где поток симуляции обязан передать управление
  * обратно в JavaFX — переход в главное меню после экрана результатов —
@@ -59,6 +60,7 @@ public final class GameSimulationLoop implements Runnable {
     private final Set<PlayerId> moveForwardPlayers = ConcurrentHashMap.newKeySet();
     private final Set<PlayerId> moveBackwardPlayers = ConcurrentHashMap.newKeySet();
     private final Set<PlayerId> firePendingPlayers = ConcurrentHashMap.newKeySet();
+    private final Set<PlayerId> activationPendingPlayers = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean pauseToggleRequested = new AtomicBoolean(false);
 
     private volatile Runnable onRoundFinished;
@@ -125,6 +127,15 @@ public final class GameSimulationLoop implements Runnable {
     }
 
     private void applyPendingInput(double deltaTimeSeconds) {
+        // Подключение — раньше руления и стрельбы: если это первое нажатие
+        // клавиши вторым игроком, тот же кадр должен и создать ему танк,
+        // и сразу сдвинуть/выстрелить им, а не потребовать вторую попытку.
+        for (PlayerId playerId : PlayerId.values()) {
+            if (this.activationPendingPlayers.remove(playerId)) {
+                this.world.activatePlayer(playerId);
+            }
+        }
+
         for (PlayerId playerId : PlayerId.values()) {
             double turnDirection = this.axisValue(playerId, this.turnLeftPlayers, this.turnRightPlayers);
             double throttle = this.axisValue(playerId, this.moveBackwardPlayers, this.moveForwardPlayers);
@@ -191,11 +202,20 @@ public final class GameSimulationLoop implements Runnable {
 
         return new GameSnapshot(
                 this.world.getMap(), tankViews, bulletViews,
-                this.world.getScore(),
-                this.world.getPlayerHealth(PlayerId.PLAYER_ONE), this.world.getPlayerMaxHealth(PlayerId.PLAYER_ONE),
-                this.world.getPlayerReloadProgress(PlayerId.PLAYER_ONE),
+                this.playerHudInfo(PlayerId.PLAYER_ONE), this.playerHudInfo(PlayerId.PLAYER_TWO),
                 this.world.getState(), this.smoothedFps,
                 this.world.getState() == GameState.GAME_OVER, secondsLeft);
+    }
+
+    private PlayerHudInfo playerHudInfo(PlayerId playerId) {
+        if (!this.world.isPlayerAvailable(playerId)) {
+            return PlayerHudInfo.unavailable();
+        }
+        return new PlayerHudInfo(
+                true, this.world.isPlayerActive(playerId),
+                this.world.getScore(playerId),
+                this.world.getPlayerHealth(playerId), this.world.getPlayerMaxHealth(playerId),
+                this.world.getPlayerReloadProgress(playerId));
     }
 
     public GameSnapshot latestSnapshot() {
@@ -223,6 +243,11 @@ public final class GameSimulationLoop implements Runnable {
 
     public void requestFire(PlayerId playerId) {
         this.firePendingPlayers.add(playerId);
+    }
+
+    /** Просит подключить {@code playerId} к партии — не-op, если он уже играет или карта его не поддерживает. */
+    public void requestActivation(PlayerId playerId) {
+        this.activationPendingPlayers.add(playerId);
     }
 
     public void requestPauseToggle() {

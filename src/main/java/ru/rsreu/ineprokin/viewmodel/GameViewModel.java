@@ -2,21 +2,18 @@ package ru.rsreu.ineprokin.viewmodel;
 
 import ru.rsreu.ineprokin.config.SteeringInput;
 import ru.rsreu.ineprokin.engine.GameWorld;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
 
 /**
  * ViewModel игрового экрана. Это единственный объект, о котором знает
  * {@code view.GameView}: она не видит ни {@link GameWorld}, ни поток
- * симуляции — только команды (движение, выстрел, пауза) и текущий
- * {@link GameSnapshot}, готовый к отрисовке.
+ * симуляции — только команды (руление, выстрел, пауза, подключение
+ * игрока) и текущий {@link GameSnapshot}, готовый к отрисовке.
  * <p>
- * Публичный API сегодня управляет только {@link PlayerId#PLAYER_ONE} —
- * это осознанная граница текущего экрана, а не движка: {@link GameWorld}
- * и {@link GameSimulationLoop} уже умеют работать с произвольным набором
- * игроков, так что добавление второго игрока — это добавление второго
- * набора клавиш и параметра {@code PlayerId} здесь и в {@code GameView},
- * без изменений в модели или потоке симуляции.
+ * Все команды адресуются {@link PlayerId} — {@code view.GameView} сама
+ * решает, какому игроку принадлежит нажатая клавиша, эта ViewModel лишь
+ * передаёт команду дальше, в {@link GameSimulationLoop}.
  */
 public final class GameViewModel {
 
@@ -39,12 +36,17 @@ public final class GameViewModel {
     }
 
     /** Клавиша, отвечающая за {@code input}, нажата или отпущена. */
-    public void onSteeringInputChanged(SteeringInput input, boolean active) {
-        this.loop.setSteering(PlayerId.PLAYER_ONE, input, active);
+    public void onSteeringInputChanged(PlayerId playerId, SteeringInput input, boolean active) {
+        this.loop.setSteering(playerId, input, active);
     }
 
-    public void onFireRequested() {
-        this.loop.requestFire(PlayerId.PLAYER_ONE);
+    public void onFireRequested(PlayerId playerId) {
+        this.loop.requestFire(playerId);
+    }
+
+    /** Нажата клавиша из раскладки игрока {@code playerId} — если он ещё не в партии, самое время подключиться. */
+    public void onPlayerActivationRequested(PlayerId playerId) {
+        this.loop.requestActivation(playerId);
     }
 
     public void onPauseToggleRequested() {

@@ -7,12 +7,13 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.TextAlignment;
 import ru.rsreu.ineprokin.config.ThemeConfig;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.GameState;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.map.GameMap;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
+import ru.rsreu.ineprokin.viewmodel.dto.PlayerHudInfo;
 import ru.rsreu.ineprokin.viewmodel.dto.TankView;
 
 /**
@@ -20,10 +21,19 @@ import ru.rsreu.ineprokin.viewmodel.dto.TankView;
  * хранит между кадрами и ничего не знает о {@code GameWorld} — только
  * иммутабельный снимок на входе, значит, рендерер можно вызывать из теста
  * с рукописным снимком без запуска JavaFX-приложения.
+ * <p>
+ * Высота полосы HUD зависит от карты, а не постоянна: если на карте есть
+ * точка старта второго игрока, под неё резервируется вторая строка —
+ * будущий блок статистики или, пока игрок не подключился, приглашение
+ * присоединиться. Карта не меняется в течение партии, поэтому высоту
+ * можно посчитать один раз при создании сцены ({@link #hudHeightFor}) —
+ * не подгонять раскладку на лету.
  */
 public final class GameRenderer {
 
-    public static final double HUD_HEIGHT = 56.0;
+    /** Высота одного блока статистики игрока — строка с очками/здоровьем плюс строка перезарядки. */
+    private static final double PLAYER_BLOCK_HEIGHT = 56.0;
+
     private static final double TANK_SIZE = Tank.SIZE;
     private static final double BULLET_RADIUS = 3.0;
     private static final double HEALTH_BAR_HEIGHT = 6.0;
@@ -36,44 +46,51 @@ public final class GameRenderer {
         this.theme = theme;
     }
 
+    /** Сколько места нужно под HUD: одна строка для одного игрока, две — если на карте есть второй. */
+    public static double hudHeightFor(boolean playerTwoAvailable) {
+        return playerTwoAvailable ? PLAYER_BLOCK_HEIGHT * 2 : PLAYER_BLOCK_HEIGHT;
+    }
+
     public void render(GraphicsContext gc, GameSnapshot snapshot, double width, double height) {
-        this.drawBackground(gc, width, height);
-        this.drawMap(gc, snapshot.map());
+        double hudHeight = GameRenderer.hudHeightFor(snapshot.playerTwo().available());
+
+        this.drawBackground(gc, width, height, hudHeight);
+        this.drawMap(gc, snapshot.map(), hudHeight);
         for (TankView tank : snapshot.tanks()) {
-            this.drawTank(gc, tank);
+            this.drawTank(gc, tank, hudHeight);
         }
         for (BulletView bullet : snapshot.bullets()) {
-            this.drawBullet(gc, bullet);
+            this.drawBullet(gc, bullet, hudHeight);
         }
-        this.drawHud(gc, snapshot, width);
+        this.drawHud(gc, snapshot, width, hudHeight);
         this.drawStateOverlay(gc, snapshot, width, height);
         if (snapshot.resultsVisible()) {
             this.drawResultsScreen(gc, snapshot, width, height);
         }
     }
 
-    private void drawBackground(GraphicsContext gc, double width, double height) {
+    private void drawBackground(GraphicsContext gc, double width, double height, double hudHeight) {
         gc.setFill(this.theme.hudBackground());
-        gc.fillRect(0, 0, width, GameRenderer.HUD_HEIGHT);
+        gc.fillRect(0, 0, width, hudHeight);
         gc.setFill(this.theme.background());
-        gc.fillRect(0, GameRenderer.HUD_HEIGHT, width, height - GameRenderer.HUD_HEIGHT);
+        gc.fillRect(0, hudHeight, width, height - hudHeight);
     }
 
-    private void drawMap(GraphicsContext gc, GameMap map) {
+    private void drawMap(GraphicsContext gc, GameMap map, double hudHeight) {
         gc.setFill(this.theme.wall());
         for (int row = 0; row < map.height(); row++) {
             for (int col = 0; col < map.width(); col++) {
                 if (map.isWall(col, row)) {
-                    gc.fillRect(col * GameMap.TILE_SIZE, this.mapY(row * GameMap.TILE_SIZE),
+                    gc.fillRect(col * GameMap.TILE_SIZE, this.mapY(row * GameMap.TILE_SIZE, hudHeight),
                             GameMap.TILE_SIZE, GameMap.TILE_SIZE);
                 }
             }
         }
     }
 
-    private void drawTank(GraphicsContext gc, TankView tank) {
+    private void drawTank(GraphicsContext gc, TankView tank, double hudHeight) {
         double x = tank.x();
-        double y = this.mapY(tank.y());
+        double y = this.mapY(tank.y(), hudHeight);
         double centerX = x + GameRenderer.TANK_SIZE / 2.0;
         double centerY = y + GameRenderer.TANK_SIZE / 2.0;
         double turretLength = GameRenderer.TANK_SIZE * 0.75;
@@ -95,17 +112,15 @@ public final class GameRenderer {
         if (!tank.isPlayerControlled() && tank.health() < tank.maxHealth()) {
             this.drawHealthBar(gc, x, y, tank.health(), tank.maxHealth());
         }
-        // Кольцо перезарядки игрока рисует drawReloadStatus в неподвижной
-        // полосе HUD, а не здесь, у самого танка на поле боя.
+        // Кольцо перезарядки игрока рисует drawHud в неподвижной полосе HUD,
+        // а не здесь, у самого танка на поле боя.
     }
 
     private Color hullColorFor(PlayerId playerId) {
         if (playerId == null) {
             return this.theme.enemyHull();
         }
-        // Оба игрока — один зелёный корпус, пока второй реально не появился на поле;
-        // здесь единственное место, которое нужно тронуть, чтобы различать игроков цветом.
-        return this.theme.playerHull();
+        return playerId == PlayerId.PLAYER_TWO ? this.theme.playerTwoHull() : this.theme.playerHull();
     }
 
     private void drawHealthBar(GraphicsContext gc, double tankX, double tankY, int health, int maxHealth) {
@@ -124,9 +139,9 @@ public final class GameRenderer {
     }
 
     /**
-     * Кольцо перезарядки орудия под танком игрока: тонкий фоновый круг и поверх
-     * него дуга, которая заполняет круг по часовой стрелке от 12 часов, пока
-     * орудие перезаряжается, и становится полной окружностью, когда оно готово.
+     * Кольцо перезарядки орудия: тонкий фоновый круг и поверх него дуга,
+     * которая заполняет круг по часовой стрелке от 12 часов, пока орудие
+     * перезаряжается, и становится полной окружностью, когда оно готово.
      */
     private void drawReloadRing(GraphicsContext gc, double centerX, double centerY, double reloadProgress) {
         double diameter = GameRenderer.RELOAD_RING_RADIUS * 2;
@@ -153,41 +168,65 @@ public final class GameRenderer {
         return this.theme.healthLow();
     }
 
-    private void drawBullet(GraphicsContext gc, BulletView bullet) {
+    private void drawBullet(GraphicsContext gc, BulletView bullet, double hudHeight) {
         gc.setFill(bullet.fromPlayer() ? this.theme.bulletPlayer() : this.theme.bulletEnemy());
         double x = bullet.x();
-        double y = this.mapY(bullet.y());
+        double y = this.mapY(bullet.y(), hudHeight);
         gc.fillOval(x - GameRenderer.BULLET_RADIUS, y - GameRenderer.BULLET_RADIUS,
                 GameRenderer.BULLET_RADIUS * 2, GameRenderer.BULLET_RADIUS * 2);
     }
 
-    private void drawHud(GraphicsContext gc, GameSnapshot snapshot, double width) {
+    private void drawHud(GraphicsContext gc, GameSnapshot snapshot, double width, double hudHeight) {
+        this.drawPlayerBlock(gc, "Игрок 1", this.theme.playerHull(), snapshot.playerOne(), 0);
+
+        if (snapshot.playerTwo().available()) {
+            if (snapshot.playerTwo().active()) {
+                this.drawPlayerBlock(gc, "Игрок 2", this.theme.playerTwoHull(), snapshot.playerTwo(),
+                        GameRenderer.PLAYER_BLOCK_HEIGHT);
+            } else {
+                this.drawJoinHint(gc, width, GameRenderer.PLAYER_BLOCK_HEIGHT);
+            }
+        }
+
         gc.setFill(this.theme.hudText());
-        gc.setTextAlign(TextAlignment.LEFT);
-        gc.setFont(Font.font("Consolas", FontWeight.BOLD, 18));
-
-        gc.fillText("Очки: " + snapshot.score(), 16, 34);
-        gc.fillText("Жизни: " + snapshot.playerHealth() + " / " + snapshot.playerMaxHealth(), 190, 34);
-
         gc.setTextAlign(TextAlignment.RIGHT);
-        gc.fillText(String.format("FPS: %.0f", snapshot.fps()), width - 16, 34);
+        gc.setFont(Font.font("Consolas", FontWeight.BOLD, 14));
+        gc.fillText(String.format("FPS: %.0f", snapshot.fps()), width - 16, 20);
         gc.setTextAlign(TextAlignment.LEFT);
-
-        this.drawReloadStatus(gc, snapshot.playerReloadProgress());
     }
 
     /**
-     * Статус перезарядки — в неподвижной полосе HUD: в отличие от точки на
-     * поле боя, эта позиция не заслоняется пулями, стенами или другими танками.
+     * Одна строка статистики игрока — подпись с именем (цветом его корпуса),
+     * очки, здоровье — и строка перезарядки под ней. И это, и {@link #drawJoinHint}
+     * занимают ровно {@link #PLAYER_BLOCK_HEIGHT} по вертикали, начиная с {@code blockOffsetY}.
      */
-    private void drawReloadStatus(GraphicsContext gc, double reloadProgress) {
-        gc.setFill(this.theme.hudText());
-        gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 14));
-        gc.fillText("Орудие:", 16, 50);
+    private void drawPlayerBlock(GraphicsContext gc, String label, Color labelColor, PlayerHudInfo info, double blockOffsetY) {
+        double statsY = blockOffsetY + 34;
+        double reloadY = blockOffsetY + 50;
 
-        // Само кольцо цветом и заполнением показывает готовность — короткой
-        // подписи слева достаточно, чтобы не гадать, к чему оно относится.
-        this.drawReloadRing(gc, 78, 45, reloadProgress);
+        gc.setTextAlign(TextAlignment.LEFT);
+        gc.setFont(Font.font("Consolas", FontWeight.BOLD, 18));
+        gc.setFill(labelColor);
+        gc.fillText(label, 16, statsY);
+
+        gc.setFill(this.theme.hudText());
+        gc.fillText("Очки: " + info.score(), 110, statsY);
+        gc.fillText("Жизни: " + info.health() + " / " + info.maxHealth(), 250, statsY);
+
+        gc.setFont(Font.font("Consolas", FontWeight.NORMAL, 14));
+        gc.fillText("Орудие:", 16, reloadY);
+        this.drawReloadRing(gc, 78, reloadY - 5, info.reloadProgress());
+    }
+
+    /** Приглашение подключиться — вместо блока статистики, пока второй игрок ещё не сыграл ни одной клавиши. */
+    private void drawJoinHint(GraphicsContext gc, double width, double blockOffsetY) {
+        double y = blockOffsetY + GameRenderer.PLAYER_BLOCK_HEIGHT / 2.0 + 5;
+
+        gc.setFill(this.theme.joinHintText());
+        gc.setTextAlign(TextAlignment.CENTER);
+        gc.setFont(Font.font("Consolas", FontWeight.BOLD, 16));
+        gc.fillText("Игрок 2: нажмите ↑ ↓ ← → или Enter, чтобы подключиться", width / 2.0, y);
+        gc.setTextAlign(TextAlignment.LEFT);
     }
 
     private void drawStateOverlay(GraphicsContext gc, GameSnapshot snapshot, double width, double height) {
@@ -203,7 +242,11 @@ public final class GameRenderer {
         gc.fillRect(0, 0, width, height);
 
         this.drawCentered(gc, "ИГРА ОКОНЧЕНА", this.theme.gameOverText(), 44, width, height / 2.0 - 70);
-        this.drawCentered(gc, "Счёт: " + snapshot.score(), this.theme.hudText(), 30, width, height / 2.0 - 10);
+
+        String scoreText = snapshot.playerTwo().active()
+                ? "Игрок 1: " + snapshot.playerOne().score() + "    Игрок 2: " + snapshot.playerTwo().score()
+                : "Счёт: " + snapshot.playerOne().score();
+        this.drawCentered(gc, scoreText, this.theme.hudText(), 28, width, height / 2.0 - 10);
 
         gc.setFill(this.theme.hudText());
         gc.setTextAlign(TextAlignment.CENTER);
@@ -221,7 +264,7 @@ public final class GameRenderer {
     }
 
     /** Переводит Y карты в экранные координаты — область карты начинается ниже полосы HUD. */
-    private double mapY(double mapPixelY) {
-        return mapPixelY + GameRenderer.HUD_HEIGHT;
+    private double mapY(double mapPixelY, double hudHeight) {
+        return mapPixelY + hudHeight;
     }
 }

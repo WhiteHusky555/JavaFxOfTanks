@@ -4,9 +4,9 @@ import org.junit.jupiter.api.Test;
 import ru.rsreu.ineprokin.engine.ai.AiDecision;
 import ru.rsreu.ineprokin.engine.ai.AiStrategy;
 import ru.rsreu.ineprokin.engine.spawn.DefaultSpawnLocationFinder;
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Bullet;
 import ru.rsreu.ineprokin.model.entity.GameState;
-import ru.rsreu.ineprokin.model.entity.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.geometry.Direction;
 import ru.rsreu.ineprokin.model.map.GameMap;
@@ -41,11 +41,30 @@ class GameWorldTest {
         return GameMap.load(input);
     }
 
+    /** У этой карты, в отличие от {@link #mapWithOneEnemy()}, есть точка старта и для второго игрока. */
+    private static GameMap mapWithBothPlayers() {
+        String content = String.join("\n",
+                "########",
+                "#P.....#",
+                "#......#",
+                "#2.....#",
+                "########");
+        InputStream input = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+        return GameMap.load(input);
+    }
+
     private static GameWorld newWorldWithDormantAi(GameMap map) {
         Random random = new Random(42);
         CollisionService collisionService = new CollisionService();
         EnemyAiService enemyAiService = new EnemyAiService(GameWorldTest.DORMANT_AI, collisionService, random);
         return new GameWorld(map, collisionService, enemyAiService, new DefaultSpawnLocationFinder(), random);
+    }
+
+    private static Tank playerTank(GameWorld world, PlayerId playerId) {
+        return world.getTanks().stream()
+                .filter(tank -> tank.getPlayerId().orElse(null) == playerId)
+                .findFirst()
+                .orElseThrow();
     }
 
     @Test
@@ -61,7 +80,7 @@ class GameWorldTest {
     @Test
     void drivingForwardIntoWallStopsAtTheWallWithoutTurning() {
         GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithOneEnemy());
-        Tank player = world.getTanks().stream().filter(Tank::isPlayer).findFirst().orElseThrow();
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
         double startX = player.getX();
         // Подальше от стены, а не вплотную к ней: одного тика на скорости игрока
         // хватает, чтобы проехать несколько пикселей, — из точки в паре пикселей
@@ -84,7 +103,7 @@ class GameWorldTest {
     @Test
     void rotatingPlayerChangesHeadingWithoutMoving() {
         GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithOneEnemy());
-        Tank player = world.getTanks().stream().filter(Tank::isPlayer).findFirst().orElseThrow();
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
         double startX = player.getX();
         double startY = player.getY();
 
@@ -96,19 +115,20 @@ class GameWorldTest {
     }
 
     @Test
-    void steeringUnknownPlayerIsNoOp() {
+    void steeringInactivePlayerIsNoOp() {
         GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithOneEnemy());
 
         world.steerPlayer(PlayerId.PLAYER_TWO, 1, 1, 1.0); // не должно бросить исключение
 
+        assertFalse(world.isPlayerAvailable(PlayerId.PLAYER_TWO)); // на этой карте для него нет точки старта
         assertEquals(Tank.MAX_HEALTH, world.getPlayerMaxHealth(PlayerId.PLAYER_TWO));
         assertEquals(1.0, world.getPlayerReloadProgress(PlayerId.PLAYER_TWO)); // считается "готовым" по умолчанию
     }
 
     @Test
-    void firingPlayerBulletEventuallyKillsStationaryEnemyAndAwardsScore() {
+    void firingPlayerBulletEventuallyKillsStationaryEnemyAndCreditsTheShooter() {
         GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithOneEnemy());
-        Tank player = world.getTanks().stream().filter(Tank::isPlayer).findFirst().orElseThrow();
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
         Tank enemy = world.getTanks().stream().filter(tank -> !tank.isPlayer()).findFirst().orElseThrow();
 
         // Подводим игрока вплотную к врагу по одной оси и разворачиваем в его сторону, чтобы выстрел точно попал.
@@ -124,7 +144,8 @@ class GameWorldTest {
             }
         }
 
-        assertTrue(world.getScore() >= GameConfig.SCORE_PER_KILL);
+        assertTrue(world.getScore(PlayerId.PLAYER_ONE) >= GameConfig.SCORE_PER_KILL);
+        assertEquals(0, world.getScore(PlayerId.PLAYER_TWO)); // второй игрок не стрелял — и не подключался
     }
 
     @Test
@@ -133,7 +154,7 @@ class GameWorldTest {
         world.togglePause();
         assertEquals(GameState.PAUSED, world.getState());
 
-        Tank player = world.getTanks().stream().filter(Tank::isPlayer).findFirst().orElseThrow();
+        Tank player = GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE);
         double startX = player.getX();
         double startY = player.getY();
         world.steerPlayer(PlayerId.PLAYER_ONE, 1, 1, 1.0);
@@ -141,5 +162,61 @@ class GameWorldTest {
         assertEquals(startX, player.getX());
         assertEquals(startY, player.getY());
         assertFalse(world.getTanks().isEmpty());
+    }
+
+    @Test
+    void playerTwoStaysInactiveUntilExplicitlyActivated() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithBothPlayers());
+
+        assertTrue(world.isPlayerAvailable(PlayerId.PLAYER_TWO));
+        assertFalse(world.isPlayerActive(PlayerId.PLAYER_TWO));
+        assertEquals(1, world.getTanks().size()); // только первый игрок, второй ещё не сыграл ни одной клавиши
+    }
+
+    @Test
+    void activatingPlayerTwoSpawnsThemAtTheirMapStart() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithBothPlayers());
+
+        world.activatePlayer(PlayerId.PLAYER_TWO);
+
+        assertTrue(world.isPlayerActive(PlayerId.PLAYER_TWO));
+        assertEquals(2, world.getTanks().size());
+        assertEquals(Tank.MAX_HEALTH, world.getPlayerHealth(PlayerId.PLAYER_TWO));
+    }
+
+    @Test
+    void activatingAlreadyActivePlayerDoesNotSpawnASecondTank() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithBothPlayers());
+        world.activatePlayer(PlayerId.PLAYER_TWO);
+
+        world.activatePlayer(PlayerId.PLAYER_TWO);
+
+        assertEquals(2, world.getTanks().size());
+    }
+
+    @Test
+    void roundEndsOnlyOnceBothActivePlayersAreDestroyed() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithBothPlayers());
+        world.activatePlayer(PlayerId.PLAYER_TWO);
+
+        GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE).takeDamage(Tank.MAX_HEALTH);
+        world.tick(1.0 / 60.0);
+        assertEquals(GameState.PLAYING, world.getState()); // второй игрок ещё жив
+
+        GameWorldTest.playerTank(world, PlayerId.PLAYER_TWO).takeDamage(Tank.MAX_HEALTH);
+        world.tick(1.0 / 60.0);
+        assertEquals(GameState.GAME_OVER, world.getState());
+    }
+
+    @Test
+    void cannotActivatePlayerAfterTheRoundIsOver() {
+        GameWorld world = GameWorldTest.newWorldWithDormantAi(GameWorldTest.mapWithBothPlayers());
+        GameWorldTest.playerTank(world, PlayerId.PLAYER_ONE).takeDamage(Tank.MAX_HEALTH);
+        world.tick(1.0 / 60.0);
+        assertEquals(GameState.GAME_OVER, world.getState());
+
+        world.activatePlayer(PlayerId.PLAYER_TWO);
+
+        assertFalse(world.isPlayerActive(PlayerId.PLAYER_TWO));
     }
 }

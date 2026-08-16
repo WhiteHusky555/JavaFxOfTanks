@@ -1,5 +1,6 @@
 package ru.rsreu.ineprokin.engine;
 
+import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.Bullet;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.map.GameMap;
@@ -141,11 +142,12 @@ public final class CollisionService {
     /**
      * Обрабатывает столкновения пуль со стенами и танками.
      *
-     * @return вражеские танки, уничтоженные в этом тике пулями игрока — по ним
-     *         {@code GameWorld} начислит очки и закажет возрождение замены
+     * @return {@link PlayerId} стрелка за каждый вражеский танк, уничтоженный
+     *         в этом тике, — по этому списку {@code GameWorld} начислит очки
+     *         тому игроку, который выстрелил, и закажет возрождение замены
      */
-    public List<Tank> resolveBulletHits(List<Bullet> bullets, List<Tank> tanks, GameMap map) {
-        List<Tank> killedByPlayer = new ArrayList<>();
+    public List<PlayerId> resolveBulletHits(List<Bullet> bullets, List<Tank> tanks, GameMap map) {
+        List<PlayerId> scorers = new ArrayList<>();
 
         for (Bullet bullet : bullets) {
             if (bullet.isDestroyed()) {
@@ -165,14 +167,14 @@ public final class CollisionService {
                 if (this.bulletHitsTank(bullet, tank)) {
                     tank.takeDamage(bullet.getDamage());
                     bullet.destroy();
-                    if (bullet.isFromPlayer() && tank.isDestroyed()) {
-                        killedByPlayer.add(tank);
+                    if (tank.isDestroyed()) {
+                        bullet.getShooterId().ifPresent(scorers::add);
                     }
                     break;
                 }
             }
         }
-        return killedByPlayer;
+        return scorers;
     }
 
     private boolean bulletHitsTank(Bullet bullet, Tank tank) {

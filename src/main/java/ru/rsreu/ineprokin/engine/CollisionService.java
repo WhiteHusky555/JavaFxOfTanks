@@ -1,0 +1,148 @@
+package ru.rsreu.ineprokin.engine;
+
+import ru.rsreu.ineprokin.model.entity.Bullet;
+import ru.rsreu.ineprokin.model.entity.Tank;
+import ru.rsreu.ineprokin.model.map.GameMap;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Вся геометрия столкновений в одном месте: танк со стеной, пуля со стеной,
+ * пуля с танком, танк с танком. В исходной C++-версии эта логика была
+ * размазана по {@code GameModel::checkWallCollision} и {@code processCollisions}
+ * с повторяющимися инлайн-проверками AABB.
+ */
+public final class CollisionService {
+
+    public boolean collidesWithWall(GameMap map, double x, double y, double size) {
+        if (x < 0 || y < 0 || x + size > map.widthInPixels() || y + size > map.heightInPixels()) {
+            return true;
+        }
+
+        int startCol = (int) (x / GameMap.TILE_SIZE);
+        int startRow = (int) (y / GameMap.TILE_SIZE);
+        int endCol = (int) ((x + size - 0.001) / GameMap.TILE_SIZE);
+        int endRow = (int) ((y + size - 0.001) / GameMap.TILE_SIZE);
+
+        for (int row = startRow; row <= endRow; row++) {
+            for (int col = startCol; col <= endCol; col++) {
+                if (map.isWall(col, row)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public boolean collidesWithOtherTank(Tank moving, double x, double y, List<Tank> tanks) {
+        for (Tank other : tanks) {
+            if (other == moving || other.isDestroyed()) {
+                continue;
+            }
+            boolean overlapsX = x + Tank.SIZE > other.getX() && x < other.getX() + Tank.SIZE;
+            boolean overlapsY = y + Tank.SIZE > other.getY() && y < other.getY() + Tank.SIZE;
+            if (overlapsX && overlapsY) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Пытается передвинуть танк в новую точку, если она не занята стеной или другим танком. */
+    public boolean tryMoveTank(Tank tank, double newX, double newY, GameMap map, List<Tank> tanks) {
+        if (this.collidesWithWall(map, newX, newY, Tank.SIZE) || this.collidesWithOtherTank(tank, newX, newY, tanks)) {
+            return false;
+        }
+        tank.setPosition(newX, newY);
+        return true;
+    }
+
+    /** Мягко разводит перекрывающиеся танки в стороны, не пропуская их сквозь стены. */
+    public void separateOverlappingTanks(List<Tank> tanks, GameMap map) {
+        for (int i = 0; i < tanks.size(); i++) {
+            Tank first = tanks.get(i);
+            if (first.isDestroyed()) {
+                continue;
+            }
+            for (int j = i + 1; j < tanks.size(); j++) {
+                Tank second = tanks.get(j);
+                if (second.isDestroyed()) {
+                    continue;
+                }
+                this.separatePair(first, second, map, tanks);
+            }
+        }
+    }
+
+    private void separatePair(Tank first, Tank second, GameMap map, List<Tank> tanks) {
+        double centerFirstX = first.getX() + Tank.SIZE / 2.0;
+        double centerFirstY = first.getY() + Tank.SIZE / 2.0;
+        double centerSecondX = second.getX() + Tank.SIZE / 2.0;
+        double centerSecondY = second.getY() + Tank.SIZE / 2.0;
+
+        double dx = centerFirstX - centerSecondX;
+        double dy = centerFirstY - centerSecondY;
+        double distance = Math.hypot(dx, dy);
+
+        if (distance >= Tank.SIZE) {
+            return; // не перекрываются
+        }
+        if (distance < 0.001) {
+            // Танки оказались точно друг на друге — расталкиваем по оси X произвольно.
+            this.tryMoveTank(first, first.getX() + Tank.SIZE / 4.0, first.getY(), map, tanks);
+            this.tryMoveTank(second, second.getX() - Tank.SIZE / 4.0, second.getY(), map, tanks);
+            return;
+        }
+
+        double overlap = Tank.SIZE - distance;
+        double pushX = (dx / distance) * overlap / 2.0;
+        double pushY = (dy / distance) * overlap / 2.0;
+
+        this.tryMoveTank(first, first.getX() + pushX, first.getY() + pushY, map, tanks);
+        this.tryMoveTank(second, second.getX() - pushX, second.getY() - pushY, map, tanks);
+    }
+
+    /**
+     * Обрабатывает столкновения пуль со стенами и танками.
+     *
+     * @return вражеские танки, уничтоженные в этом тике пулями игрока — по ним
+     *         {@code GameWorld} начислит очки и закажет возрождение замены
+     */
+    public List<Tank> resolveBulletHits(List<Bullet> bullets, List<Tank> tanks, GameMap map) {
+        List<Tank> killedByPlayer = new ArrayList<>();
+
+        for (Bullet bullet : bullets) {
+            if (bullet.isDestroyed()) {
+                continue;
+            }
+            int col = (int) Math.floor(bullet.getX() / GameMap.TILE_SIZE);
+            int row = (int) Math.floor(bullet.getY() / GameMap.TILE_SIZE);
+            if (map.isWall(col, row)) {
+                bullet.destroy();
+                continue;
+            }
+
+            for (Tank tank : tanks) {
+                if (tank.isDestroyed() || tank.isPlayer() == bullet.isFromPlayer()) {
+                    continue; // без дружественного огня
+                }
+                if (this.bulletHitsTank(bullet, tank)) {
+                    tank.takeDamage(bullet.getDamage());
+                    bullet.destroy();
+                    if (bullet.isFromPlayer() && tank.isDestroyed()) {
+                        killedByPlayer.add(tank);
+                    }
+                    break;
+                }
+            }
+        }
+        return killedByPlayer;
+    }
+
+    private boolean bulletHitsTank(Bullet bullet, Tank tank) {
+        boolean overlapsX = bullet.getX() + Bullet.RADIUS > tank.getX() && bullet.getX() - Bullet.RADIUS < tank.getX() + Tank.SIZE;
+        boolean overlapsY = bullet.getY() + Bullet.RADIUS > tank.getY() && bullet.getY() - Bullet.RADIUS < tank.getY() + Tank.SIZE;
+        return overlapsX && overlapsY;
+    }
+}

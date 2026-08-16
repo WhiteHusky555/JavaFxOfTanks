@@ -1,0 +1,208 @@
+package ru.rsreu.ineprokin.viewmodel;
+
+import javafx.application.Platform;
+import ru.rsreu.ineprokin.engine.GameConfig;
+import ru.rsreu.ineprokin.engine.GameWorld;
+import ru.rsreu.ineprokin.model.entity.GameState;
+import ru.rsreu.ineprokin.model.entity.PlayerId;
+import ru.rsreu.ineprokin.model.geometry.Direction;
+import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
+import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
+import ru.rsreu.ineprokin.viewmodel.dto.TankView;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Продвигает {@link GameWorld} на отдельном потоке-демоне с постоянным шагом
+ * ~60 Гц, не завися от частоты кадров рендера.
+ * <p>
+ * Поток JavaFX (поток отрисовки {@code Canvas}) и поток симуляции обмениваются
+ * данными без единого {@code synchronized}: команды игроков публикуются
+ * в потокобезопасных {@link ConcurrentHashMap}/{@link AtomicBoolean} полях
+ * (пишет поток JavaFX, читает поток симуляции), а состояние мира — в виде
+ * неизменяемого {@link GameSnapshot}, который поток симуляции кладёт
+ * в {@link AtomicReference}, а поток JavaFX оттуда читает. Делить нечего —
+ * разделяются только ссылки на неизменяемые объекты, поэтому блокировки
+ * не нужны в принципе, а не просто "пока не понадобились".
+ * <p>
+ * Входные команды уже адресуются по {@link PlayerId}, хотя сегодня используется
+ * только {@link PlayerId#PLAYER_ONE} — очередь на добавление второго игрока
+ * упирается только в {@code view}-слой (вторая раскладка клавиш), не в цикл
+ * симуляции или {@link GameWorld}.
+ * <p>
+ * Единственный момент, где поток симуляции обязан передать управление
+ * обратно в JavaFX — переход в главное меню после экрана результатов —
+ * оформлен через {@link Platform#runLater(Runnable)}, как того требует
+ * правило JavaFX "трогать сцену можно только из FX-потока".
+ */
+public final class GameSimulationLoop implements Runnable {
+
+    private static final Logger LOGGER = Logger.getLogger(GameSimulationLoop.class.getName());
+    private static final long TICK_PERIOD_MILLIS = 16L; // ≈ 60 обновлений в секунду
+
+    private final GameWorld world;
+    private final ScheduledExecutorService executor;
+    private final AtomicReference<GameSnapshot> latestSnapshot;
+    private final Map<PlayerId, Direction> heldDirections = new ConcurrentHashMap<>();
+    private final Set<PlayerId> firePendingPlayers = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean pauseToggleRequested = new AtomicBoolean(false);
+
+    private volatile Runnable onRoundFinished;
+    private ScheduledFuture<?> scheduledTask;
+
+    // Поля ниже читает и пишет исключительно сам поток симуляции (внутри run()),
+    // поэтому синхронизация им не требуется — доступ строго последовательный.
+    private long lastTickNanos = -1L;
+    private double resultsElapsedSeconds;
+    private boolean resultsAnnounced;
+    private double smoothedFps;
+
+    public GameSimulationLoop(GameWorld world) {
+        this.world = world;
+        this.executor = Executors.newSingleThreadScheduledExecutor(this::newDaemonThread);
+        this.latestSnapshot = new AtomicReference<>(this.buildSnapshot(0.0));
+    }
+
+    private Thread newDaemonThread(Runnable task) {
+        Thread thread = new Thread(task, "tanks-simulation");
+        thread.setDaemon(true);
+        return thread;
+    }
+
+    public void start() {
+        if (this.scheduledTask == null) {
+            this.scheduledTask = this.executor.scheduleAtFixedRate(this, 0, TICK_PERIOD_MILLIS, TimeUnit.MILLISECONDS);
+        }
+    }
+
+    public void stop() {
+        if (this.scheduledTask != null) {
+            this.scheduledTask.cancel(false);
+        }
+        this.executor.shutdown();
+    }
+
+    /** Единица работы, которую исполнитель периодически прогоняет в фоновом потоке. */
+    @Override
+    public void run() {
+        try {
+            double deltaTimeSeconds = this.computeDeltaSeconds(System.nanoTime());
+            this.applyPendingInput(deltaTimeSeconds);
+            this.world.tick(deltaTimeSeconds);
+            this.advanceResultsCountdown(deltaTimeSeconds);
+            this.latestSnapshot.set(this.buildSnapshot(deltaTimeSeconds));
+        } catch (RuntimeException e) {
+            // scheduleAtFixedRate молча "хоронит" задачу при необработанном исключении —
+            // логируем и отдаём следующему тику шанс продолжить, а не роняем весь цикл.
+            LOGGER.log(Level.SEVERE, "Необработанная ошибка в цикле симуляции", e);
+        }
+    }
+
+    private double computeDeltaSeconds(long nowNanos) {
+        if (this.lastTickNanos < 0) {
+            this.lastTickNanos = nowNanos;
+            return 0.0;
+        }
+        double deltaTimeSeconds = (nowNanos - this.lastTickNanos) / 1_000_000_000.0;
+        this.lastTickNanos = nowNanos;
+        // Ограничиваем скачок дельты (после паузы отладчика, сна ОС и т.п.),
+        // чтобы танк не "телепортировался" сквозь стену за один огромный тик.
+        return Math.min(deltaTimeSeconds, 0.05);
+    }
+
+    private void applyPendingInput(double deltaTimeSeconds) {
+        this.heldDirections.forEach((playerId, direction) -> this.world.movePlayer(playerId, direction, deltaTimeSeconds));
+
+        for (PlayerId playerId : PlayerId.values()) {
+            if (this.firePendingPlayers.remove(playerId)) {
+                this.world.firePlayer(playerId);
+            }
+        }
+        if (this.pauseToggleRequested.getAndSet(false)) {
+            this.world.togglePause();
+        }
+    }
+
+    private void advanceResultsCountdown(double deltaTimeSeconds) {
+        if (this.world.getState() != GameState.GAME_OVER) {
+            this.resultsElapsedSeconds = 0.0;
+            this.resultsAnnounced = false;
+            return;
+        }
+        if (this.resultsAnnounced) {
+            return;
+        }
+        this.resultsElapsedSeconds += deltaTimeSeconds;
+        if (this.resultsElapsedSeconds >= GameConfig.RESULTS_SCREEN_SECONDS) {
+            this.resultsAnnounced = true;
+            Runnable callback = this.onRoundFinished;
+            if (callback != null) {
+                Platform.runLater(callback);
+            }
+        }
+    }
+
+    private GameSnapshot buildSnapshot(double deltaTimeSeconds) {
+        double instantFps = deltaTimeSeconds > 0 ? 1.0 / deltaTimeSeconds : this.smoothedFps;
+        this.smoothedFps = this.smoothedFps <= 0 ? instantFps : (this.smoothedFps * 0.9 + instantFps * 0.1);
+
+        List<TankView> tankViews = this.world.getTanks().stream()
+                .map(tank -> new TankView(
+                        tank.getX(), tank.getY(), tank.getDirection(),
+                        tank.getPlayerId().orElse(null), tank.getHealth(), tank.getMaxHealth()))
+                .toList();
+        List<BulletView> bulletViews = this.world.getBullets().stream()
+                .map(bullet -> new BulletView(bullet.getX(), bullet.getY(), bullet.isFromPlayer()))
+                .toList();
+
+        int secondsLeft = (int) Math.max(1, Math.ceil(GameConfig.RESULTS_SCREEN_SECONDS - this.resultsElapsedSeconds));
+
+        return new GameSnapshot(
+                this.world.getMap(), tankViews, bulletViews,
+                this.world.getScore(),
+                this.world.getPlayerHealth(PlayerId.PLAYER_ONE), this.world.getPlayerMaxHealth(PlayerId.PLAYER_ONE),
+                this.world.getState(), this.smoothedFps,
+                this.world.getState() == GameState.GAME_OVER, secondsLeft);
+    }
+
+    public GameSnapshot latestSnapshot() {
+        return this.latestSnapshot.get();
+    }
+
+    public void setHeldDirection(PlayerId playerId, Direction direction) {
+        this.heldDirections.put(playerId, direction);
+    }
+
+    /**
+     * Отпущена клавиша {@code direction} игрока {@code playerId}. Сбрасываем
+     * удержание, только если она и была активной — иначе отпускание "старой"
+     * клавиши могло бы ошибочно остановить танк, уже переключившийся на
+     * другое направление.
+     */
+    public void clearHeldDirectionIfMatches(PlayerId playerId, Direction direction) {
+        this.heldDirections.computeIfPresent(playerId, (id, current) -> current == direction ? null : current);
+    }
+
+    public void requestFire(PlayerId playerId) {
+        this.firePendingPlayers.add(playerId);
+    }
+
+    public void requestPauseToggle() {
+        this.pauseToggleRequested.set(true);
+    }
+
+    public void setOnRoundFinished(Runnable callback) {
+        this.onRoundFinished = callback;
+    }
+}

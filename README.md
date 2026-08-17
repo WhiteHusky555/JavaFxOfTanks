@@ -1,5 +1,7 @@
 # JavaFX of Tanks
 
+[![Java CI with Maven](https://github.com/WhiteHusky555/JavaFxOfTanks/actions/workflows/maven.yml/badge.svg)](https://github.com/WhiteHusky555/JavaFxOfTanks/actions/workflows/maven.yml)
+
 Аркадная игра «Танки» на **Java 21 / JavaFX**: слоистая архитектура
 **MVVM**, доменная логика без единой зависимости от UI-фреймворка,
 симуляция партии в отдельном потоке и вся редактируемая часть игры
@@ -246,6 +248,17 @@ GameSimulationLoop implements Runnable   — тикает партию на ~60 
 ```bash
 mvn test
 ```
+
+## CI/CD
+
+Два workflow в [`.github/workflows`](.github/workflows):
+
+| Файл | Когда запускается | Что делает |
+|------|--------------------|------------|
+| `maven.yml` | Любой `push`, любой pull request в `main` | `mvnw clean test` (JDK 21) — все 50 тестов из раздела «Тесты» выше; отчёт покрытия JaCoCo (`target/site/jacoco/`) прикладывается к запуску как скачиваемый артефакт |
+| `release.yml` | `push` тега вида `v*` (например, `v1.0.0`) | `mvnw clean package` и публикация `javafx-of-tanks.jar` в GitHub Releases с автоматически сгенерированными release notes |
+
+Статус последнего прогона — значок в самом верху этого файла.
 
 ## Автор
 

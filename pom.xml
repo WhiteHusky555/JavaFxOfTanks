@@ -69,6 +69,28 @@
                 <version>3.2.5</version>
             </plugin>
 
+            <!-- Покрытие тестами: агент цепляется к "mvn test", отчёт (target/site/jacoco/index.html)
+                 собирается сразу после прогона тестов той же командой, без отдельного goal. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- "mvn javafx:run" запускает игру без ручной настройки module-path -->
             <plugin>
                 <groupId>org.openjfx</groupId>

@@ -1,0 +1,38 @@
+# Собирает исполняемый jar и публикует его в GitHub Releases при пуше тега вида v1.0.0.
+# Сам релиз (описание, список коммитов) генерируется автоматически по истории от
+# предыдущего тега — вручную писать release notes не нужно.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Make mvnw executable
+        run: chmod +x mvnw
+
+      - name: Build jar
+        run: ./mvnw -B clean package
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/javafx-of-tanks.jar
+          generate_release_notes: true

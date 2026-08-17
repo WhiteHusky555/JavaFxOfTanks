@@ -62,8 +62,7 @@
 
 ### Источники текстур
 
-Значки бонусов и бочки — не нарисованный код, а готовые изображения из
-свободных наборов:
+Значки бонусов и бочки — готовые изображения из свободных наборов:
 
 | Элемент                  | Файл                                                                            | Источник | Автор | Лицензия |
 |---------------------------|----------------------------------------------------------------------------------|----------|-------|----------|
@@ -72,8 +71,8 @@
 | Доп. жизнь (сердце)      | [`textures/pickup_extra_life.png`](src/main/resources/ru/rsreu/ineprokin/textures/pickup_extra_life.png) | [Game icons (heart, diamond, star and lightning bolt)](https://opengameart.org/content/game-icons-heart-diamond-star-and-lightning-bolt) | PiXeRaT | CC BY-SA 4.0 |
 | Ускоренная перезарядка (молния) | [`textures/pickup_rapid_reload.png`](src/main/resources/ru/rsreu/ineprokin/textures/pickup_rapid_reload.png) | [Game icons (heart, diamond, star and lightning bolt)](https://opengameart.org/content/game-icons-heart-diamond-star-and-lightning-bolt) | PiXeRaT | CC BY-SA 4.0 |
 
-Оригиналы сердца и молнии вырезаны из анимированного спрайт-листа автора и
-обрезаны по границе непрозрачных пикселей — сам рисунок не менялся.
+Сердце и молния вырезаны из анимированного спрайт-листа автора и обрезаны
+по границе непрозрачных пикселей.
 
 ## Запуск
 
@@ -255,10 +254,10 @@ mvn test
 
 | Файл | Когда запускается | Что делает |
 |------|--------------------|------------|
-| `maven.yml` | Любой `push`, любой pull request в `main` | `mvnw clean package` (JDK 21) — все 50 тестов из раздела «Тесты» выше, затем jar; к запуску прикладываются два скачиваемых артефакта: `javafx-of-tanks` (сам jar) и `jacoco-report` (отчёт покрытия) |
+| `maven.yml` | Любой `push`, любой pull request в `main` | `mvnw clean package` (JDK 21): юнит-тесты, затем jar; к запуску прикладываются два скачиваемых артефакта — `javafx-of-tanks` (сам jar) и `jacoco-report` (отчёт покрытия) |
 | `release.yml` | `push` тега вида `v*` (например, `v1.0.0`) | `mvnw clean package` и публикация `javafx-of-tanks.jar` в GitHub Releases с автоматически сгенерированными release notes |
 
-Артефакты `maven.yml` живут ограниченное время и качаются только залогиненным в GitHub — для постоянной ссылки на скачивание нужен тег и `release.yml`. Статус последнего прогона — значок в самом верху этого файла.
+Артефакты `maven.yml` живут ограниченное время и качаются только залогиненным в GitHub; постоянная публичная ссылка на скачивание появляется только через тег и `release.yml`.
 
 ## Автор
 

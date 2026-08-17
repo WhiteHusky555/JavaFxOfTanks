@@ -7,6 +7,7 @@ import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.capability.BulletSpawnRequest;
 import ru.rsreu.ineprokin.model.capability.Destructible;
 import ru.rsreu.ineprokin.model.entity.Bullet;
+import ru.rsreu.ineprokin.model.entity.Explosion;
 import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
 import ru.rsreu.ineprokin.model.entity.GameState;
 import ru.rsreu.ineprokin.model.entity.Pickup;
@@ -27,7 +28,7 @@ import java.util.Set;
 
 /**
  * Корень доменной модели одной партии: карта, танки, пули, бонусы, бочки,
- * счёт и фаза игры. Сам не занимается ни физикой столкновений, ни ИИ, ни
+ * взрывы от детонации бочек, счёт и фаза игры. Сам не занимается ни физикой столкновений, ни ИИ, ни
  * поиском точки возрождения — эти обязанности переданы {@link CollisionService},
  * {@link EnemyAiService} и {@link SpawnLocationFinder} соответственно.
  * {@code GameWorld} — только их оркестратор.
@@ -52,6 +53,7 @@ public final class GameWorld implements GameWorldView {
     private final List<Bullet> bullets = new ArrayList<>();
     private final List<Pickup> pickups = new ArrayList<>();
     private final List<ExplosiveBarrel> barrels = new ArrayList<>();
+    private final List<Explosion> explosions = new ArrayList<>();
     private final Map<PlayerId, Tank> playerTanks = new EnumMap<>(PlayerId.class);
     private final Map<PlayerId, Integer> scores = new EnumMap<>(PlayerId.class);
     private final Map<PlayerId, Integer> extraLives = new EnumMap<>(PlayerId.class);
@@ -82,6 +84,7 @@ public final class GameWorld implements GameWorldView {
         this.bullets.clear();
         this.pickups.clear();
         this.barrels.clear();
+        this.explosions.clear();
         this.playerTanks.clear();
         this.scores.clear();
         this.extraLives.clear();
@@ -193,6 +196,9 @@ public final class GameWorld implements GameWorldView {
         for (Bullet bullet : this.bullets) {
             bullet.update(deltaTimeSeconds);
         }
+        for (Explosion explosion : this.explosions) {
+            explosion.update(deltaTimeSeconds);
+        }
 
         for (BulletSpawnRequest request : this.enemyAiService.update(deltaTimeSeconds, this)) {
             this.spawnBullet(request);
@@ -201,8 +207,13 @@ public final class GameWorld implements GameWorldView {
         for (PlayerId scorer : this.collisionService.resolveBulletHits(this.bullets, this.tanks, this.map)) {
             this.awardKill(scorer);
         }
-        for (PlayerId scorer : this.collisionService.resolveBulletBarrelHits(this.bullets, this.barrels, this.tanks)) {
+        CollisionService.BarrelBlastResult barrelBlastResult =
+                this.collisionService.resolveBulletBarrelHits(this.bullets, this.barrels, this.tanks);
+        for (PlayerId scorer : barrelBlastResult.scorers()) {
             this.awardKill(scorer);
+        }
+        for (CollisionService.BarrelDetonation detonation : barrelBlastResult.detonations()) {
+            this.explosions.add(new Explosion(detonation.x(), detonation.y(), detonation.radius()));
         }
         for (CollisionService.PickupCollection collection : this.collisionService.resolvePickupCollisions(this.pickups, this.tanks)) {
             this.applyPickupEffect(collection.tank(), collection.type());
@@ -216,6 +227,7 @@ public final class GameWorld implements GameWorldView {
         this.tanks.removeIf(Destructible::isDestroyed);
         this.pickups.removeIf(Destructible::isDestroyed);
         this.barrels.removeIf(Destructible::isDestroyed);
+        this.explosions.removeIf(Destructible::isDestroyed);
 
         if (this.allPlayersDestroyed()) {
             this.state = GameState.GAME_OVER;
@@ -299,6 +311,10 @@ public final class GameWorld implements GameWorldView {
 
     public List<ExplosiveBarrel> getBarrels() {
         return Collections.unmodifiableList(this.barrels);
+    }
+
+    public List<Explosion> getExplosions() {
+        return Collections.unmodifiableList(this.explosions);
     }
 
     @Override

@@ -27,6 +27,7 @@ public record GameSnapshot(
         List<BulletView> bullets,
         List<PickupView> pickups,
         List<BarrelView> barrels,
+        List<ExplosionView> explosions,
         PlayerHudInfo playerOne,
         PlayerHudInfo playerTwo,
         GameState state,
@@ -40,5 +41,6 @@ public record GameSnapshot(
         bullets = List.copyOf(bullets);
         pickups = List.copyOf(pickups);
         barrels = List.copyOf(barrels);
+        explosions = List.copyOf(explosions);
     }
 }

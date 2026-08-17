@@ -161,14 +161,16 @@ class CollisionServiceTest {
         Bullet bullet = new Bullet(80 + ExplosiveBarrel.SIZE / 2.0, 80 + ExplosiveBarrel.SIZE / 2.0,
                 Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
 
-        List<PlayerId> scorers = collisionService.resolveBulletBarrelHits(
+        CollisionService.BarrelBlastResult result = collisionService.resolveBulletBarrelHits(
                 List.of(bullet), List.of(barrel), List.of(shooter, bystander));
 
         assertTrue(bullet.isDestroyed());
         assertTrue(barrel.isDestroyed());
         assertEquals(Tank.MAX_HEALTH - ExplosiveBarrel.EXPLOSION_DAMAGE, shooter.getHealth()); // взрыв не разбирает своих
         assertEquals(Tank.MAX_HEALTH - ExplosiveBarrel.EXPLOSION_DAMAGE, bystander.getHealth());
-        assertTrue(scorers.isEmpty()); // одного взрыва недостаточно, чтобы убить
+        assertTrue(result.scorers().isEmpty()); // одного взрыва недостаточно, чтобы убить
+        assertEquals(1, result.detonations().size());
+        assertEquals(ExplosiveBarrel.EXPLOSION_RADIUS, result.detonations().get(0).radius(), 1e-9);
     }
 
     @Test
@@ -180,10 +182,11 @@ class CollisionServiceTest {
         Bullet bullet = new Bullet(80 + ExplosiveBarrel.SIZE / 2.0, 80 + ExplosiveBarrel.SIZE / 2.0,
                 Direction.UP.headingDegrees(), PlayerId.PLAYER_ONE);
 
-        List<PlayerId> scorers = collisionService.resolveBulletBarrelHits(List.of(bullet), List.of(barrel), List.of(enemy));
+        CollisionService.BarrelBlastResult result =
+                collisionService.resolveBulletBarrelHits(List.of(bullet), List.of(barrel), List.of(enemy));
 
         assertTrue(enemy.isDestroyed());
-        assertEquals(List.of(PlayerId.PLAYER_ONE), scorers);
+        assertEquals(List.of(PlayerId.PLAYER_ONE), result.scorers());
     }
 
     @Test

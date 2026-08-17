@@ -32,12 +32,8 @@ public final class ThemeConfig {
     private final Color reloadBarBackground;
     private final Color reloadReady;
     private final Color reloadCharging;
-    private final Color pickupMedkitBody;
-    private final Color pickupMedkitMark;
     private final Color pickupExtraLifeBody;
-    private final Color pickupRapidReloadBody;
-    private final Color barrelBody;
-    private final Color barrelMark;
+    private final Color explosionRing;
     private final Color hudText;
     private final Color pauseText;
     private final Color gameOverText;
@@ -61,12 +57,8 @@ public final class ThemeConfig {
         this.reloadBarBackground = ThemeConfig.colorOf(properties, "reload.bar.background");
         this.reloadReady = ThemeConfig.colorOf(properties, "reload.ready");
         this.reloadCharging = ThemeConfig.colorOf(properties, "reload.charging");
-        this.pickupMedkitBody = ThemeConfig.colorOf(properties, "pickup.medkit.body");
-        this.pickupMedkitMark = ThemeConfig.colorOf(properties, "pickup.medkit.mark");
         this.pickupExtraLifeBody = ThemeConfig.colorOf(properties, "pickup.extra.life.body");
-        this.pickupRapidReloadBody = ThemeConfig.colorOf(properties, "pickup.rapid.reload.body");
-        this.barrelBody = ThemeConfig.colorOf(properties, "barrel.body");
-        this.barrelMark = ThemeConfig.colorOf(properties, "barrel.mark");
+        this.explosionRing = ThemeConfig.colorOf(properties, "explosion.ring");
         this.hudText = ThemeConfig.colorOf(properties, "hud.text");
         this.pauseText = ThemeConfig.colorOf(properties, "pause.text");
         this.gameOverText = ThemeConfig.colorOf(properties, "game.over.text");
@@ -159,28 +151,12 @@ public final class ThemeConfig {
         return this.reloadCharging;
     }
 
-    public Color pickupMedkitBody() {
-        return this.pickupMedkitBody;
-    }
-
-    public Color pickupMedkitMark() {
-        return this.pickupMedkitMark;
-    }
-
     public Color pickupExtraLifeBody() {
         return this.pickupExtraLifeBody;
     }
 
-    public Color pickupRapidReloadBody() {
-        return this.pickupRapidReloadBody;
-    }
-
-    public Color barrelBody() {
-        return this.barrelBody;
-    }
-
-    public Color barrelMark() {
-        return this.barrelMark;
+    public Color explosionRing() {
+        return this.explosionRing;
     }
 
     public Color hudText() {

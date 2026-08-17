@@ -180,16 +180,28 @@ public final class CollisionService {
     }
 
     /**
+     * Геометрия одной детонации бочки — центр и радиус поражения. Не несёт
+     * ничего игрового, только то, что нужно, чтобы {@code engine.GameWorld}
+     * завёл на этом месте кратковременный визуальный эффект взрыва.
+     */
+    public record BarrelDetonation(double x, double y, double radius) {
+    }
+
+    /** Результат обработки попаданий по бочкам: кто получил очко и где именно прогремел взрыв. */
+    public record BarrelBlastResult(List<PlayerId> scorers, List<BarrelDetonation> detonations) {
+    }
+
+    /**
      * Обрабатывает попадания пуль по бочкам: разносит бочку от любого попадания
      * и задевает взрывом всех танков в радиусе — не разбирая, свои они или
      * чужие, даже того, кто стрелял.
      *
-     * @return {@link PlayerId} стрелка за каждый вражеский танк, убитый
-     *         взрывом, — как и при обычном попадании, очки достаются тому,
-     *         чья пуля подорвала бочку
+     * @return очки за танков, убитых взрывом (тому, чья пуля подорвала бочку),
+     *         и геометрию каждой детонации этого тика
      */
-    public List<PlayerId> resolveBulletBarrelHits(List<Bullet> bullets, List<ExplosiveBarrel> barrels, List<Tank> tanks) {
+    public BarrelBlastResult resolveBulletBarrelHits(List<Bullet> bullets, List<ExplosiveBarrel> barrels, List<Tank> tanks) {
         List<PlayerId> scorers = new ArrayList<>();
+        List<BarrelDetonation> detonations = new ArrayList<>();
 
         for (Bullet bullet : bullets) {
             if (bullet.isDestroyed()) {
@@ -202,12 +214,16 @@ public final class CollisionService {
                 if (this.bulletHitsBox(bullet, barrel.getX(), barrel.getY(), ExplosiveBarrel.SIZE)) {
                     bullet.destroy();
                     barrel.takeDamage(1);
+                    detonations.add(new BarrelDetonation(
+                            barrel.getX() + ExplosiveBarrel.SIZE / 2.0,
+                            barrel.getY() + ExplosiveBarrel.SIZE / 2.0,
+                            ExplosiveBarrel.EXPLOSION_RADIUS));
                     this.applyExplosionDamage(barrel, bullet, tanks, scorers);
                     break;
                 }
             }
         }
-        return scorers;
+        return new BarrelBlastResult(scorers, detonations);
     }
 
     private void applyExplosionDamage(ExplosiveBarrel barrel, Bullet triggeringBullet, List<Tank> tanks, List<PlayerId> scorers) {

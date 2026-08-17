@@ -1,6 +1,7 @@
 package ru.rsreu.ineprokin.view;
 
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.image.Image;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.ArcType;
 import javafx.scene.text.Font;
@@ -11,14 +12,21 @@ import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.ExplosiveBarrel;
 import ru.rsreu.ineprokin.model.entity.GameState;
 import ru.rsreu.ineprokin.model.entity.Pickup;
+import ru.rsreu.ineprokin.model.entity.PickupType;
 import ru.rsreu.ineprokin.model.entity.Tank;
 import ru.rsreu.ineprokin.model.map.GameMap;
 import ru.rsreu.ineprokin.viewmodel.dto.BarrelView;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
+import ru.rsreu.ineprokin.viewmodel.dto.ExplosionView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
 import ru.rsreu.ineprokin.viewmodel.dto.PickupView;
 import ru.rsreu.ineprokin.viewmodel.dto.PlayerHudInfo;
 import ru.rsreu.ineprokin.viewmodel.dto.TankView;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
  * Рисует один {@link GameSnapshot} на {@link GraphicsContext}. Ничего не
@@ -43,11 +51,47 @@ public final class GameRenderer {
     private static final double HEALTH_BAR_HEIGHT = 6.0;
     private static final double RELOAD_RING_RADIUS = 7.0;
     private static final double RELOAD_RING_LINE_WIDTH = 3.0;
+    private static final String TEXTURE_ROOT = "/ru/rsreu/ineprokin/textures/";
 
     private final ThemeConfig theme;
+    private final Map<PickupType, Sprite> pickupSprites;
+    private final Sprite barrelSprite;
+    private final Sprite explosionSprite;
 
     public GameRenderer(ThemeConfig theme) {
         this.theme = theme;
+        this.pickupSprites = new EnumMap<>(PickupType.class);
+        this.pickupSprites.put(PickupType.MEDKIT, GameRenderer.textureSprite("pickup_medkit.png", false));
+        this.pickupSprites.put(PickupType.EXTRA_LIFE, GameRenderer.textureSprite("pickup_extra_life.png", true));
+        this.pickupSprites.put(PickupType.RAPID_RELOAD, GameRenderer.textureSprite("pickup_rapid_reload.png", true));
+        this.barrelSprite = GameRenderer.textureSprite("barrel.png", false);
+        // Взрыв — не готовая текстура, а расширяющееся кольцо, которое рисуется кодом
+        // прямо здесь: тот же интерфейс Sprite, другая реализация — TextureSprite
+        // рендереру не нужно об этом знать.
+        this.explosionSprite = (gc, x, y, size, opacity) -> {
+            gc.setGlobalAlpha(opacity);
+            gc.setStroke(this.theme.explosionRing());
+            gc.setLineWidth(4);
+            gc.strokeOval(x, y, size, size);
+            gc.setGlobalAlpha(1.0);
+        };
+    }
+
+    /**
+     * Загружает готовую текстуру бонуса/бочки из ресурсов приложения и оборачивает
+     * её в {@link Sprite}. Источники и лицензии всех текстур перечислены в README,
+     * в разделе «Бонусы и опасности».
+     */
+    private static Sprite textureSprite(String fileName, boolean pixelArt) {
+        String path = GameRenderer.TEXTURE_ROOT + fileName;
+        try (InputStream input = GameRenderer.class.getResourceAsStream(path)) {
+            if (input == null) {
+                throw new IllegalStateException("Текстура не найдена: " + path);
+            }
+            return new TextureSprite(new Image(input), pixelArt);
+        } catch (IOException e) {
+            throw new IllegalStateException("Не удалось загрузить текстуру " + path, e);
+        }
     }
 
     /** Сколько места нужно под HUD: одна строка для одного игрока, две — если на карте есть второй. */
@@ -71,6 +115,9 @@ public final class GameRenderer {
         }
         for (BulletView bullet : snapshot.bullets()) {
             this.drawBullet(gc, bullet, hudHeight);
+        }
+        for (ExplosionView explosion : snapshot.explosions()) {
+            this.drawExplosion(gc, explosion, hudHeight);
         }
         this.drawHud(gc, snapshot, width, hudHeight);
         this.drawStateOverlay(gc, snapshot, width, height);
@@ -133,48 +180,16 @@ public final class GameRenderer {
         // а не здесь, у самого танка на поле боя.
     }
 
-    /** Бочка: тёмный корпус с крестом-предупреждением — стоит на карте, пока в неё не попадёт пуля. */
+    /** Бочка: стоит на карте как есть, пока в неё не попадёт пуля — тогда взрывается. */
     private void drawBarrel(GraphicsContext gc, BarrelView barrel, double hudHeight) {
-        double x = barrel.x();
         double y = this.mapY(barrel.y(), hudHeight);
-        double size = ExplosiveBarrel.SIZE;
-
-        gc.setFill(this.theme.barrelBody());
-        gc.fillRect(x, y, size, size);
-
-        gc.setStroke(this.theme.barrelMark());
-        gc.setLineWidth(3);
-        gc.strokeLine(x + 6, y + size / 2.0, x + size - 6, y + size / 2.0);
-        gc.strokeLine(x + size / 2.0, y + 6, x + size / 2.0, y + size - 6);
+        this.barrelSprite.draw(gc, barrel.x(), y, ExplosiveBarrel.SIZE, 1.0);
     }
 
-    /** Бонус: цвет и значок зависят от типа — аптечка (крест), доп. жизнь (кружок), ускоренная перезарядка (треугольник). */
+    /** Бонус: значок на карте зависит от типа — какой именно, определяет {@link PickupView#type()}. */
     private void drawPickup(GraphicsContext gc, PickupView pickup, double hudHeight) {
-        double x = pickup.x();
         double y = this.mapY(pickup.y(), hudHeight);
-        double size = Pickup.SIZE;
-
-        switch (pickup.type()) {
-            case MEDKIT -> {
-                gc.setFill(this.theme.pickupMedkitBody());
-                gc.fillRect(x, y, size, size);
-                gc.setStroke(this.theme.pickupMedkitMark());
-                gc.setLineWidth(4);
-                gc.strokeLine(x + size / 2.0, y + 5, x + size / 2.0, y + size - 5);
-                gc.strokeLine(x + 5, y + size / 2.0, x + size - 5, y + size / 2.0);
-            }
-            case EXTRA_LIFE -> {
-                gc.setFill(this.theme.pickupExtraLifeBody());
-                gc.fillOval(x, y, size, size);
-            }
-            case RAPID_RELOAD -> {
-                gc.setFill(this.theme.pickupRapidReloadBody());
-                gc.fillPolygon(
-                        new double[]{x + size / 2.0, x + size, x, },
-                        new double[]{y, y + size, y + size},
-                        3);
-            }
-        }
+        this.pickupSprites.get(pickup.type()).draw(gc, pickup.x(), y, Pickup.SIZE, 1.0);
     }
 
     private Color hullColorFor(PlayerId playerId) {
@@ -235,6 +250,22 @@ public final class GameRenderer {
         double y = this.mapY(bullet.y(), hudHeight);
         gc.fillOval(x - GameRenderer.BULLET_RADIUS, y - GameRenderer.BULLET_RADIUS,
                 GameRenderer.BULLET_RADIUS * 2, GameRenderer.BULLET_RADIUS * 2);
+    }
+
+    /**
+     * Кольцо ударной волны на радиусе поражения бочки: расширяется от центра
+     * взрыва до {@link ExplosionView#radius()} и одновременно выцветает —
+     * оба эффекта завязаны на {@link ExplosionView#progress()}, а не на
+     * отдельный таймер рендерера, поэтому кадр не зависит от FPS.
+     */
+    private void drawExplosion(GraphicsContext gc, ExplosionView explosion, double hudHeight) {
+        double centerX = explosion.x();
+        double centerY = this.mapY(explosion.y(), hudHeight);
+        double currentRadius = explosion.radius() * explosion.progress();
+        double alpha = 1.0 - explosion.progress();
+        double diameter = currentRadius * 2;
+
+        this.explosionSprite.draw(gc, centerX - currentRadius, centerY - currentRadius, diameter, alpha);
     }
 
     private void drawHud(GraphicsContext gc, GameSnapshot snapshot, double width, double hudHeight) {

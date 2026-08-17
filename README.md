@@ -61,6 +61,27 @@
 мигает и игнорирует урон, чтобы не погибнуть второй раз мгновенно на той же
 точке, ещё не успев среагировать на обстановку.
 
+Момент детонации бочки виден не только по уроне: на месте взрыва вспыхивает
+кольцо, которое расширяется ровно до границы `ExplosiveBarrel.EXPLOSION_RADIUS`
+и гаснет — `model.entity.Explosion` живёт `Explosion.DURATION_SECONDS`
+и исчезает точно так же, как долетевшая пуля или подобранный бонус, так что
+игроку не нужно верить на слово, кого именно должно было задеть.
+
+### Источники текстур
+
+Значки бонусов и бочки — не нарисованный код, а готовые изображения из
+свободных наборов:
+
+| Элемент                  | Файл                                                                            | Источник | Автор | Лицензия |
+|---------------------------|----------------------------------------------------------------------------------|----------|-------|----------|
+| Медпакет                 | [`textures/pickup_medkit.png`](src/main/resources/ru/rsreu/ineprokin/textures/pickup_medkit.png) | [Generic Items — Kenney](https://opengameart.org/content/generic-items) | Kenney (kenney.nl) | CC0 1.0 |
+| Взрывная бочка           | [`textures/barrel.png`](src/main/resources/ru/rsreu/ineprokin/textures/barrel.png) | [Topdown Tanks — Kenney](https://opengameart.org/content/topdown-tanks) | Kenney (kenney.nl) | CC0 1.0 |
+| Доп. жизнь (сердце)      | [`textures/pickup_extra_life.png`](src/main/resources/ru/rsreu/ineprokin/textures/pickup_extra_life.png) | [Game icons (heart, diamond, star and lightning bolt)](https://opengameart.org/content/game-icons-heart-diamond-star-and-lightning-bolt) | PiXeRaT | CC BY-SA 4.0 |
+| Ускоренная перезарядка (молния) | [`textures/pickup_rapid_reload.png`](src/main/resources/ru/rsreu/ineprokin/textures/pickup_rapid_reload.png) | [Game icons (heart, diamond, star and lightning bolt)](https://opengameart.org/content/game-icons-heart-diamond-star-and-lightning-bolt) | PiXeRaT | CC BY-SA 4.0 |
+
+Оригиналы сердца и молнии вырезаны из анимированного спрайт-листа автора и
+обрезаны по границе непрозрачных пикселей — сам рисунок не менялся.
+
 ## Запуск
 
 Нужен только JDK 21+ — Maven устанавливать не обязательно: в проекте есть
@@ -107,7 +128,7 @@ config    — парсинг текстовых ресурсов (controls/theme
 model/                 PlayerId, AboutInfo — общие для capability и entity, поэтому ни в одном из них
 model.capability/       Updatable, Destructible, Damageable, DamageSource, Fireable, BulletSpawnRequest
 model.geometry/         Direction, Position, TileCoord
-model.entity/           GameObject, Tank, Bullet, Pickup, PickupType, ExplosiveBarrel, GameState
+model.entity/           GameObject, Tank, Bullet, Pickup, PickupType, ExplosiveBarrel, Explosion, GameState
 model.map/               GameMap, TileType, MapLoadException
 
 engine/                CollisionService, EnemyAiService, GameWorld, GameWorldView, GameConfig
@@ -115,9 +136,9 @@ engine.ai/              AiStrategy, AiDecision, RandomAiStrategy
 engine.spawn/           SpawnLocationFinder, DefaultSpawnLocationFinder
 
 viewmodel/              GameViewModel, GameSimulationLoop, MenuViewModel, AboutViewModel
-viewmodel.dto/           GameSnapshot, TankView, BulletView, PickupView, BarrelView, PlayerHudInfo
+viewmodel.dto/           GameSnapshot, TankView, BulletView, PickupView, BarrelView, ExplosionView, PlayerHudInfo
 
-view/                   GameView, GameRenderer, MenuView, AboutView
+view/                   GameView, GameRenderer, Sprite, TextureSprite, MenuView, AboutView
 navigation/              Router, SceneRouter
 config/                  ControlsConfig, PlayerControlScheme, SteeringInput, ThemeConfig, AboutContent
 ```
@@ -139,7 +160,14 @@ config/                  ControlsConfig, PlayerControlScheme, SteeringInput, The
   разбросан по местам, откуда стреляют;
 - `AiStrategy` — тактика вражеского танка — это стратегия, а не набор
   условий внутри движка; в тестах ей на замену подставляется лямбда,
-  которая никогда не двигается и не стреляет, без единого мока.
+  которая никогда не двигается и не стреляет, без единого мока;
+- `view.Sprite` — то же самое на слое отрисовки: как именно нарисован
+  бонус или бочка, `GameRenderer` не знает и не должен — он вызывает
+  один и тот же метод `draw(...)`. `TextureSprite` рисует готовой
+  текстурой, а взрыв реализует тот же интерфейс лямбдой прямо в
+  `GameRenderer`, потому что кольцо ударной волны нельзя нарисовать
+  статичным изображением — обе реализации взаимозаменяемы для вызывающего
+  кода.
 
 ### Records как DTO между слоями
 

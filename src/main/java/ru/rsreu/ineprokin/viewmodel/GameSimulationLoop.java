@@ -8,6 +8,7 @@ import ru.rsreu.ineprokin.model.PlayerId;
 import ru.rsreu.ineprokin.model.entity.GameState;
 import ru.rsreu.ineprokin.viewmodel.dto.BarrelView;
 import ru.rsreu.ineprokin.viewmodel.dto.BulletView;
+import ru.rsreu.ineprokin.viewmodel.dto.ExplosionView;
 import ru.rsreu.ineprokin.viewmodel.dto.GameSnapshot;
 import ru.rsreu.ineprokin.viewmodel.dto.PickupView;
 import ru.rsreu.ineprokin.viewmodel.dto.PlayerHudInfo;
@@ -205,11 +206,14 @@ public final class GameSimulationLoop implements Runnable {
         List<BarrelView> barrelViews = this.world.getBarrels().stream()
                 .map(barrel -> new BarrelView(barrel.getX(), barrel.getY()))
                 .toList();
+        List<ExplosionView> explosionViews = this.world.getExplosions().stream()
+                .map(explosion -> new ExplosionView(explosion.getX(), explosion.getY(), explosion.getRadius(), explosion.getProgress()))
+                .toList();
 
         int secondsLeft = (int) Math.max(1, Math.ceil(GameConfig.RESULTS_SCREEN_SECONDS - this.resultsElapsedSeconds));
 
         return new GameSnapshot(
-                this.world.getMap(), tankViews, bulletViews, pickupViews, barrelViews,
+                this.world.getMap(), tankViews, bulletViews, pickupViews, barrelViews, explosionViews,
                 this.playerHudInfo(PlayerId.PLAYER_ONE), this.playerHudInfo(PlayerId.PLAYER_TWO),
                 this.world.getState(), this.smoothedFps,
                 this.world.getState() == GameState.GAME_OVER, secondsLeft);

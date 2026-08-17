@@ -1,4 +1,6 @@
-# Прогоняет тесты Maven (JUnit 5) при каждом push и при каждом pull request в main.
+# Прогоняет тесты Maven (JUnit 5) при каждом push и при каждом pull request в main,
+# затем собирает jar и прикладывает его к запуску вместе с отчётом покрытия —
+# скачать можно на вкладке Actions → нужный запуск → Artifacts, без пуша тега.
 # Использует Maven Wrapper проекта (mvnw), поэтому версия Maven та же, что и при
 # локальной сборке, и ставить Maven на раннер отдельно не нужно.
 
@@ -26,11 +28,17 @@ jobs:
       - name: Make mvnw executable
         run: chmod +x mvnw
 
-      - name: Run tests
-        run: ./mvnw -B clean test
+      - name: Build and test
+        run: ./mvnw -B clean package
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
           path: target/site/jacoco/
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: javafx-of-tanks
+          path: target/javafx-of-tanks.jar

@@ -255,7 +255,7 @@ mvn test
 | Файл | Когда запускается | Что делает |
 |------|--------------------|------------|
 | `maven.yml` | Любой `push`, любой pull request в `main` | `mvnw clean package` (JDK 21): юнит-тесты, затем jar; к запуску прикладываются два скачиваемых артефакта — `javafx-of-tanks` (сам jar) и `jacoco-report` (отчёт покрытия) |
-| `release.yml` | `push` тега вида `v*` (например, `v1.0.0`) | `mvnw clean package` и публикация `javafx-of-tanks.jar` в GitHub Releases с автоматически сгенерированными release notes |
+| `release.yml` | `push` тега вида `v*` (например, `v2.0.0`) | `mvnw clean package` и публикация `javafx-of-tanks.jar` в GitHub Releases с автоматически сгенерированными release notes |
 
 Артефакты `maven.yml` живут ограниченное время и качаются только залогиненным в GitHub; постоянная публичная ссылка на скачивание появляется только через тег и `release.yml`.
 

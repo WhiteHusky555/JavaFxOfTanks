@@ -1,0 +1,5 @@
+# Maven Wrapper — mvnw это POSIX shell script и обязан оставаться с LF-концами
+# строк независимо от локальных настроек git (core.autocrlf) на любой машине:
+# с CRLF внутри его ломает интерпретатор sh на Linux-раннере CI.
+/mvnw text eol=lf
+/mvnw.cmd text eol=crlf
